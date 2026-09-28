@@ -1,0 +1,880 @@
+version: 1
+
+# Game data is split into JSONL training sets. Dataset names and paths use the
+# final component of repo_id from docs/hf_dataset_path.csv, without `_bc_01`;
+# OneVision uses the named-subset Parquet layout.
+# Resolve all path variables on the target training cluster.
+# *_GUIDED_VAL are the exact stage-1 validation JSONL files.
+# New *_DATA_ROOT variables point to prepared roots containing _merged/
+# train.jsonl and val.jsonl; train/val must be disjoint.
+# Instruction: Genshin V2, Cyberpunk 0826, general selected 92h.
+# Reasoning: the corresponding history15/sl120 releases.
+format: mixed
+default_dataset_format: parquet
+root: ${LLAVA_DATA_ROOT}
+# Existing guided validation splits documented in docs/dataset_paths.md.
+# Keep stage-1 guided validation sets unchanged. Add instruction/WoW validation.
+# Caption, OneVision and other general-game data remain training-only.
+val:
+  - ${GENSHIN_GUIDED_VAL}
+  - ${SPIDERMAN_GUIDED_VAL}
+  - ${CYBERPUNK2077_GUIDED_VAL}
+  # Placeholder: download/verify the new 674-Parquet WoW release, then prepare
+  # disjoint train/val splits under WORLD_OF_WARCRAFT_DATA_ROOT/_merged.
+  - ${WORLD_OF_WARCRAFT_DATA_ROOT}/_merged/val.jsonl
+  - ${GENSHIN_INSTRUCTION_DATA_ROOT}/_merged/val.jsonl
+  - ${CYBERPUNK2077_INSTRUCTION_DATA_ROOT}/_merged/val.jsonl
+  - ${GENERAL_INSTRUCTION_DATA_ROOT}/_merged/val.jsonl
+download: never
+hf_max_workers: 8
+
+loader:
+  streaming: true
+  dataset_shuffle: true
+  shuffle_buffer_size: 10000
+  dataset_mix: interleave
+  interleave_unit: dataset
+  interleave_weight: sample_count
+  stopping_strategy: all_exhausted
+  enable_channel_loss: true
+  channel_columns:
+    game: channel
+    data_source: channel
+  add_genshin_special_tokens: true
+
+
+# Stage-2 exposures below supersede the historical token estimates.
+
+
+
+# Existing game paths use the final component of their CSV repo_id with the trailing
+# `_bc_01` removed, under GENERAL_GAME_DATA_ROOT.
+# passes controls total sample exposure; train this expanded mixture for one epoch.
+datasets:
+  world_of_warcraft:
+    # Pending download: the source release must contain 674 Parquet shards.
+    # WORLD_OF_WARCRAFT_DATA_ROOT is the prepared dataset root, not raw Parquet.
+    path: '${WORLD_OF_WARCRAFT_DATA_ROOT}/_merged/train.jsonl'
+    format: jsonl
+    passes: 2.0
+  # Instruction: selected 92h general-game release; reasoning: history15/sl120.
+  genshin_instruct:
+    path: ${GENSHIN_INSTRUCTION_DATA_ROOT}/_merged/train.jsonl
+    format: jsonl
+    passes: 2.0
+  cyberpunk2077_instruct:
+    path: ${CYBERPUNK2077_INSTRUCTION_DATA_ROOT}/_merged/train.jsonl
+    format: jsonl
+    passes: 2.0
+  general_game_instruction:
+    path: ${GENERAL_INSTRUCTION_DATA_ROOT}/_merged/train.jsonl
+    format: jsonl
+    passes: 2.0
+  genshin_reasoning:
+    path: ${GENSHIN_REASONING_DATA_ROOT}/_merged/train.jsonl
+    format: jsonl
+    passes: 0.1
+  cyberpunk2077_reasoning:
+    path: ${CYBERPUNK2077_REASONING_DATA_ROOT}/_merged/train.jsonl
+    format: jsonl
+    passes: 0.1
+  spiderman2_reasoning:
+    path: ${SPIDERMAN_REASONING_DATA_ROOT}/_merged/train.jsonl
+    format: jsonl
+    passes: 0.1
+  'game_caption_qa_0905':
+    path: '$game_caption_qa_0905/train.jsonl'
+    format: jsonl
+    passes: 1.0
+  'guided_genshin_impact_official_server':
+    path: '${GENERAL_GAME_DATA_ROOT}/guided_genshin_impact_official_server/train.jsonl'
+    format: jsonl
+    passes: 2.0
+  'guided_marvels_spider_man_2':
+    path: '${GENERAL_GAME_DATA_ROOT}/guided_marvels_spider_man_2/train.jsonl'
+    format: jsonl
+    passes: 2.0
+  'guided_cyberpunk_2077':
+    path: '${GENERAL_GAME_DATA_ROOT}/guided_cyberpunk_2077/train.jsonl'
+    format: jsonl
+    passes: 2.0
+  'clair_obscur_expedition_33':
+    path: '${GENERAL_GAME_DATA_ROOT}/clair_obscur_expedition_33/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'grand_theft_auto_v':
+    path: '${GENERAL_GAME_DATA_ROOT}/grand_theft_auto_v/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'hades_ii':
+    path: '${GENERAL_GAME_DATA_ROOT}/hades_ii/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'rust':
+    path: '${GENERAL_GAME_DATA_ROOT}/rust/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'counter_strike_2':
+    path: '${GENERAL_GAME_DATA_ROOT}/counter_strike_2/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'the_elder_scrolls_v_skyrim_special_edition':
+    path: '${GENERAL_GAME_DATA_ROOT}/the_elder_scrolls_v_skyrim_special_edition/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'ready_or_not':
+    path: '${GENERAL_GAME_DATA_ROOT}/ready_or_not/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'middle_earth_shadow_of_war':
+    path: '${GENERAL_GAME_DATA_ROOT}/middle_earth_shadow_of_war/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'scum':
+    path: '${GENERAL_GAME_DATA_ROOT}/scum/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'human_fall_flat':
+    path: '${GENERAL_GAME_DATA_ROOT}/human_fall_flat/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'nioh_3':
+    path: '${GENERAL_GAME_DATA_ROOT}/nioh_3/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'the_binding_of_isaac_rebirth':
+    path: '${GENERAL_GAME_DATA_ROOT}/the_binding_of_isaac_rebirth/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'call_of_duty_advanced_warfare_gold_edition':
+    path: '${GENERAL_GAME_DATA_ROOT}/call_of_duty_advanced_warfare_gold_edition/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'call_of_duty_black_ops_iii':
+    path: '${GENERAL_GAME_DATA_ROOT}/call_of_duty_black_ops_iii/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'call_of_duty_wwii':
+    path: '${GENERAL_GAME_DATA_ROOT}/call_of_duty_wwii/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'call_of_duty_black_ops_cold_war':
+    path: '${GENERAL_GAME_DATA_ROOT}/call_of_duty_black_ops_cold_war/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'call_of_duty_infinite_warfare':
+    path: '${GENERAL_GAME_DATA_ROOT}/call_of_duty_infinite_warfare/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'call_of_duty_modern_warfare_ii':
+    path: '${GENERAL_GAME_DATA_ROOT}/call_of_duty_modern_warfare_ii/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'call_of_duty_modern_warfare_iii':
+    path: '${GENERAL_GAME_DATA_ROOT}/call_of_duty_modern_warfare_iii/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'call_of_duty_modern_warfare_2_campaign_remastered':
+    path: '${GENERAL_GAME_DATA_ROOT}/call_of_duty_modern_warfare_2_campaign_remastered/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'assassins_creed_odyssey':
+    path: '${GENERAL_GAME_DATA_ROOT}/assassins_creed_odyssey/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'assassins_creed_origins':
+    path: '${GENERAL_GAME_DATA_ROOT}/assassins_creed_origins/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'stellar_blade':
+    path: '${GENERAL_GAME_DATA_ROOT}/stellar_blade/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'gas_station_simulator':
+    path: '${GENERAL_GAME_DATA_ROOT}/gas_station_simulator/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'lies_of_p':
+    path: '${GENERAL_GAME_DATA_ROOT}/lies_of_p/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'baldurs_gate_3':
+    path: '${GENERAL_GAME_DATA_ROOT}/baldurs_gate_3/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'wo_long_fallen_dynasty':
+    path: '${GENERAL_GAME_DATA_ROOT}/wo_long_fallen_dynasty/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'atomic_heart':
+    path: '${GENERAL_GAME_DATA_ROOT}/atomic_heart/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'sekiro_shadows_die_twice_goty_edition':
+    path: '${GENERAL_GAME_DATA_ROOT}/sekiro_shadows_die_twice_goty_edition/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'slime_rancher_2':
+    path: '${GENERAL_GAME_DATA_ROOT}/slime_rancher_2/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'ultimate_epic_battle_simulator':
+    path: '${GENERAL_GAME_DATA_ROOT}/ultimate_epic_battle_simulator/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'vampire_survivors':
+    path: '${GENERAL_GAME_DATA_ROOT}/vampire_survivors/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'breathedge':
+    path: '${GENERAL_GAME_DATA_ROOT}/breathedge/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'horizon_forbidden_west_complete_edition':
+    path: '${GENERAL_GAME_DATA_ROOT}/horizon_forbidden_west_complete_edition/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'horizon_zero_dawn':
+    path: '${GENERAL_GAME_DATA_ROOT}/horizon_zero_dawn/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'metro_2033_redux':
+    path: '${GENERAL_GAME_DATA_ROOT}/metro_2033_redux/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'metro_last_light_redux':
+    path: '${GENERAL_GAME_DATA_ROOT}/metro_last_light_redux/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'kingdom_come_deliverance_ii':
+    path: '${GENERAL_GAME_DATA_ROOT}/kingdom_come_deliverance_ii/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'the_scroll_of_taiwu_beyond_the_dome':
+    path: '${GENERAL_GAME_DATA_ROOT}/the_scroll_of_taiwu_beyond_the_dome/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'ori_and_the_will_of_the_wisps':
+    path: '${GENERAL_GAME_DATA_ROOT}/ori_and_the_will_of_the_wisps/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'ori_and_the_blind_forest_definitive_edition':
+    path: '${GENERAL_GAME_DATA_ROOT}/ori_and_the_blind_forest_definitive_edition/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'persona_5_royal':
+    path: '${GENERAL_GAME_DATA_ROOT}/persona_5_royal/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'like_a_dragon_infinite_wealth':
+    path: '${GENERAL_GAME_DATA_ROOT}/like_a_dragon_infinite_wealth/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'far_cry_primal':
+    path: '${GENERAL_GAME_DATA_ROOT}/far_cry_primal/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'far_lone_sails':
+    path: '${GENERAL_GAME_DATA_ROOT}/far_lone_sails/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'overwatch':
+    path: '${GENERAL_GAME_DATA_ROOT}/overwatch/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'escape_simulator':
+    path: '${GENERAL_GAME_DATA_ROOT}/escape_simulator/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'little_nightmares_ii':
+    path: '${GENERAL_GAME_DATA_ROOT}/little_nightmares_ii/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'nier_automata':
+    path: '${GENERAL_GAME_DATA_ROOT}/nier_automata/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'the_witcher_3_wild_hunt':
+    path: '${GENERAL_GAME_DATA_ROOT}/the_witcher_3_wild_hunt/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'bus_simulator_21_next_stop':
+    path: '${GENERAL_GAME_DATA_ROOT}/bus_simulator_21_next_stop/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'satisfactory':
+    path: '${GENERAL_GAME_DATA_ROOT}/satisfactory/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'ghostrunner_2':
+    path: '${GENERAL_GAME_DATA_ROOT}/ghostrunner_2/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'construction_simulator':
+    path: '${GENERAL_GAME_DATA_ROOT}/construction_simulator/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'retro_rewind_video_store_simulator':
+    path: '${GENERAL_GAME_DATA_ROOT}/retro_rewind_video_store_simulator/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'tom_clancys_rainbow_six_siege':
+    path: '${GENERAL_GAME_DATA_ROOT}/tom_clancys_rainbow_six_siege/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'monster_hunter_world':
+    path: '${GENERAL_GAME_DATA_ROOT}/monster_hunter_world/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'no_rest_for_the_wicked':
+    path: '${GENERAL_GAME_DATA_ROOT}/no_rest_for_the_wicked/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'battlefield_4':
+    path: '${GENERAL_GAME_DATA_ROOT}/battlefield_4/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'god_of_war':
+    path: '${GENERAL_GAME_DATA_ROOT}/god_of_war/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'warhammer_vermintide_2':
+    path: '${GENERAL_GAME_DATA_ROOT}/warhammer_vermintide_2/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'dyson_sphere_program':
+    path: '${GENERAL_GAME_DATA_ROOT}/dyson_sphere_program/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'house_flipper':
+    path: '${GENERAL_GAME_DATA_ROOT}/house_flipper/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'prey':
+    path: '${GENERAL_GAME_DATA_ROOT}/prey/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'payday_2':
+    path: '${GENERAL_GAME_DATA_ROOT}/payday_2/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'sid_meiers_civilization_vi':
+    path: '${GENERAL_GAME_DATA_ROOT}/sid_meiers_civilization_vi/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'ark_survival_evolved':
+    path: '${GENERAL_GAME_DATA_ROOT}/ark_survival_evolved/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'borderlands_4':
+    path: '${GENERAL_GAME_DATA_ROOT}/borderlands_4/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'no_mans_sky':
+    path: '${GENERAL_GAME_DATA_ROOT}/no_mans_sky/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'warframe':
+    path: '${GENERAL_GAME_DATA_ROOT}/warframe/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'stardew_valley':
+    path: '${GENERAL_GAME_DATA_ROOT}/stardew_valley/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'warm_snow':
+    path: '${GENERAL_GAME_DATA_ROOT}/warm_snow/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'diablo_ii_resurrected':
+    path: '${GENERAL_GAME_DATA_ROOT}/diablo_ii_resurrected/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'diablo_iv':
+    path: '${GENERAL_GAME_DATA_ROOT}/diablo_iv/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'final_fantasy_vii_remake_intergrade':
+    path: '${GENERAL_GAME_DATA_ROOT}/final_fantasy_vii_remake_intergrade/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'raft':
+    path: '${GENERAL_GAME_DATA_ROOT}/raft/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'unturned':
+    path: '${GENERAL_GAME_DATA_ROOT}/unturned/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'disco_elysium_the_final_cut':
+    path: '${GENERAL_GAME_DATA_ROOT}/disco_elysium_the_final_cut/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'need_for_speed_unbound':
+    path: '${GENERAL_GAME_DATA_ROOT}/need_for_speed_unbound/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'forza_horizon_5':
+    path: '${GENERAL_GAME_DATA_ROOT}/forza_horizon_5/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'the_forest':
+    path: '${GENERAL_GAME_DATA_ROOT}/the_forest/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'sons_of_the_forest':
+    path: '${GENERAL_GAME_DATA_ROOT}/sons_of_the_forest/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'the_sims_4':
+    path: '${GENERAL_GAME_DATA_ROOT}/the_sims_4/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'euro_truck_simulator_2':
+    path: '${GENERAL_GAME_DATA_ROOT}/euro_truck_simulator_2/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'just_cause_3':
+    path: '${GENERAL_GAME_DATA_ROOT}/just_cause_3/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'octopath_traveler':
+    path: '${GENERAL_GAME_DATA_ROOT}/octopath_traveler/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'death_stranding_2_on_the_beach':
+    path: '${GENERAL_GAME_DATA_ROOT}/death_stranding_2_on_the_beach/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'dead_cells':
+    path: '${GENERAL_GAME_DATA_ROOT}/dead_cells/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'drug_dealer_simulator':
+    path: '${GENERAL_GAME_DATA_ROOT}/drug_dealer_simulator/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'left_4_dead_2':
+    path: '${GENERAL_GAME_DATA_ROOT}/left_4_dead_2/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'terraria':
+    path: '${GENERAL_GAME_DATA_ROOT}/terraria/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'dying_light_2_stay_human_reloaded_edition':
+    path: '${GENERAL_GAME_DATA_ROOT}/dying_light_2_stay_human_reloaded_edition/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'deep_rock_galactic':
+    path: '${GENERAL_GAME_DATA_ROOT}/deep_rock_galactic/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'subnautica':
+    path: '${GENERAL_GAME_DATA_ROOT}/subnautica/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'the_long_dark':
+    path: '${GENERAL_GAME_DATA_ROOT}/the_long_dark/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'dave_the_diver':
+    path: '${GENERAL_GAME_DATA_ROOT}/dave_the_diver/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'volcano_princess':
+    path: '${GENERAL_GAME_DATA_ROOT}/volcano_princess/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'where_winds_meet':
+    path: '${GENERAL_GAME_DATA_ROOT}/where_winds_meet/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'thehunter_call_of_the_wild':
+    path: '${GENERAL_GAME_DATA_ROOT}/thehunter_call_of_the_wild/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'party_animals':
+    path: '${GENERAL_GAME_DATA_ROOT}/party_animals/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'valorant':
+    path: '${GENERAL_GAME_DATA_ROOT}/valorant/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'resident_evil_4':
+    path: '${GENERAL_GAME_DATA_ROOT}/resident_evil_4/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'sea_of_thieves_2026_edition':
+    path: '${GENERAL_GAME_DATA_ROOT}/sea_of_thieves_2026_edition/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'watch_dogs_2':
+    path: '${GENERAL_GAME_DATA_ROOT}/watch_dogs_2/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'dynasty_warriors_origins':
+    path: '${GENERAL_GAME_DATA_ROOT}/dynasty_warriors_origins/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'divinity_original_sin_2_definitive_edition':
+    path: '${GENERAL_GAME_DATA_ROOT}/divinity_original_sin_2_definitive_edition/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'uncharted_legacy_of_thieves_collection':
+    path: '${GENERAL_GAME_DATA_ROOT}/uncharted_legacy_of_thieves_collection/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'grounded':
+    path: '${GENERAL_GAME_DATA_ROOT}/grounded/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'trails_in_the_sky_1st_chapter':
+    path: '${GENERAL_GAME_DATA_ROOT}/trails_in_the_sky_1st_chapter/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'hollow_knight':
+    path: '${GENERAL_GAME_DATA_ROOT}/hollow_knight/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'hollow_knight_silksong':
+    path: '${GENERAL_GAME_DATA_ROOT}/hollow_knight_silksong/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'fall_guys':
+    path: '${GENERAL_GAME_DATA_ROOT}/fall_guys/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'pubg_battlegrounds':
+    path: '${GENERAL_GAME_DATA_ROOT}/pubg_battlegrounds/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'green_hell':
+    path: '${GENERAL_GAME_DATA_ROOT}/green_hell/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'elden_ring':
+    path: '${GENERAL_GAME_DATA_ROOT}/elden_ring/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'valheim':
+    path: '${GENERAL_GAME_DATA_ROOT}/valheim/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'red_dead_redemption_2':
+    path: '${GENERAL_GAME_DATA_ROOT}/red_dead_redemption_2/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'stray':
+    path: '${GENERAL_GAME_DATA_ROOT}/stray/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'escape_from_tarkov':
+    path: '${GENERAL_GAME_DATA_ROOT}/escape_from_tarkov/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'conan_exiles_enhanced':
+    path: '${GENERAL_GAME_DATA_ROOT}/conan_exiles_enhanced/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'dinkum':
+    path: '${GENERAL_GAME_DATA_ROOT}/dinkum/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'hogwarts_legacy':
+    path: '${GENERAL_GAME_DATA_ROOT}/hogwarts_legacy/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'dont_starve':
+    path: '${GENERAL_GAME_DATA_ROOT}/dont_starve/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'devil_may_cry_5':
+    path: '${GENERAL_GAME_DATA_ROOT}/devil_may_cry_5/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'tale_of_immortal':
+    path: '${GENERAL_GAME_DATA_ROOT}/tale_of_immortal/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  '20_minutes_till_dawn':
+    path: '${GENERAL_GAME_DATA_ROOT}/20_minutes_till_dawn/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'dark_souls_iii':
+    path: '${GENERAL_GAME_DATA_ROOT}/dark_souls_iii/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  'black_myth_wukong':
+    path: '${GENERAL_GAME_DATA_ROOT}/black_myth_wukong/train.jsonl'
+    format: jsonl
+    passes: 0.5
+  "CLEVR":
+    passes: 0.709
+  "CLEVR-Math":
+    passes: 0.709
+  "Docmatix":
+    passes: 0.709
+  "Evol-Instruct-GPT4-Turbo":
+    passes: 0.709
+  "FigureQA":
+    passes: 0.709
+  "GEOS":
+    passes: 0.709
+  "GeoQA+":
+    passes: 0.709
+  "Geometry3K":
+    passes: 0.709
+  "IconQA":
+    passes: 0.709
+  "OmniDocBench_train":
+    passes: 0.709
+  "PMC-VQA":
+    passes: 0.709
+  "Super-CLEVR":
+    passes: 0.709
+  "VisualWebInstruct":
+    passes: 0.709
+  "VizWiz":
+    passes: 0.709
+  "ai2d":
+    passes: 0.709
+  "alfredplpl":
+    passes: 0.709
+  "alfworld":
+    passes: 0.709
+  "allava":
+    passes: 0.709
+  "allava_instruct_laion4v":
+    passes: 0.709
+  "allava_instruct_vflan4v":
+    passes: 0.709
+  "allenai_pixmo_docs":
+    passes: 0.709
+  "amc_aime":
+    passes: 0.709
+  "aokvqa":
+    passes: 0.709
+  "aops_forum":
+    passes: 0.709
+  "arxiv_figs":
+    passes: 0.709
+  "arxivqa":
+    passes: 0.709
+  "cambrian":
+    passes: 0.709
+  "chart2text":
+    passes: 0.709
+  "chartqa":
+    passes: 0.709
+  "chrome_writting":
+    passes: 0.709
+  "cn_k12":
+    passes: 0.709
+  "coco":
+    passes: 0.709
+  "code_feedback_66k":
+    passes: 0.709
+  "datikz":
+    passes: 0.709
+  "diagram":
+    passes: 0.709
+  "docvqa_train":
+    passes: 0.709
+  "dvqa":
+    passes: 0.709
+  "finqa":
+    passes: 0.709
+  "geo170k_align":
+    passes: 0.709
+  "geo170k_qa":
+    passes: 0.709
+  "geo3k":
+    passes: 0.709
+  "geomverse":
+    passes: 0.709
+  "gpt4o":
+    passes: 0.709
+  "gpt4v":
+    passes: 0.709
+  "gqa":
+    passes: 0.709
+  "gsm8k":
+    passes: 0.709
+  "hateful_memes":
+    passes: 0.709
+  "hitab":
+    passes: 0.709
+  "hme100k":
+    passes: 0.709
+  "iam":
+    passes: 0.709
+  "idk":
+    passes: 0.709
+  "ifeval_like":
+    passes: 0.709
+  "iiit":
+    passes: 0.709
+  "image_textualization":
+    passes: 0.709
+  "infographic_azuregpt4v":
+    passes: 0.709
+  "infographic_vqa":
+    passes: 0.709
+  "intergps":
+    passes: 0.709
+  "invoices-and-receipts_ocr":
+    passes: 0.709
+  "laion_220k":
+    passes: 0.709
+  "latex_ocr":
+    passes: 0.709
+  "llava_cot_100k":
+    passes: 0.709
+  "llava_instruct":
+    passes: 0.709
+  "llava_wild":
+    passes: 0.709
+  "llavar":
+    passes: 0.709
+  "llrv_gpt4v":
+    passes: 0.709
+  "lrv_chart":
+    passes: 0.709
+  "magpie_pro":
+    passes: 0.709
+  "magpie_ultra":
+    passes: 0.709
+  "mapqa":
+    passes: 0.709
+  "math":
+    passes: 0.709
+  "mathinstruct_262k":
+    passes: 0.709
+  "mathqa":
+    passes: 0.709
+  "mavis_math_metagen":
+    passes: 0.709
+  "ocr":
+    passes: 0.709
+  "ocrvqa":
+    passes: 0.709
+  "olympiads":
+    passes: 0.709
+  "oodvqa":
+    passes: 0.709
+  "open_orca":
+    passes: 0.709
+  "openmathinstruct":
+    passes: 0.709
+  "orca_994k":
+    passes: 0.709
+  "orca_agentinstruct":
+    passes: 0.709
+  "oroikon_chart_captioning":
+    passes: 0.709
+  "pathvqa":
+    passes: 0.709
+  "plotqa":
+    passes: 0.709
+  "raven":
+    passes: 0.709
+  "rects":
+    passes: 0.709
+  "rendered_text":
+    passes: 0.709
+  "robut_sqa":
+    passes: 0.709
+  "robut_wikisql":
+    passes: 0.709
+  "robut_wtq":
+    passes: 0.709
+  "rootsautomation":
+    passes: 0.709
+  "scienceqa":
+    passes: 0.709
+  "screen2words":
+    passes: 0.709
+  "screen_qa":
+    passes: 0.709
+  "sharegpt4o":
+    passes: 0.709
+  "sharegpt4v":
+    passes: 0.709
+  "sherlock":
+    passes: 0.709
+  "sroie_data":
+    passes: 0.709
+  "st_vqa":
+    passes: 0.709
+  "svit":
+    passes: 0.709
+  "synthetic_amc":
+    passes: 0.709
+  "synthetic_math":
+    passes: 0.709
+  "tabmwp":
+    passes: 0.709
+  "tallyqa":
+    passes: 0.709
+  "tat_qa":
+    passes: 0.709
+  "textcaps":
+    passes: 0.709
+  "textocr_gpt4v":
+    passes: 0.709
+  "textvqa":
+    passes: 0.709
+  "tinychart_train":
+    passes: 0.709
+  "tqa":
+    passes: 0.709
+  "unigeo":
+    passes: 0.709
+  "ureader_cap":
+    passes: 0.709
+  "ureader_chart":
+    passes: 0.709
+  "ureader_ie":
+    passes: 0.709
+  "ureader_kg":
+    passes: 0.709
+  "ureader_ocr":
+    passes: 0.709
+  "ureader_qa":
+    passes: 0.709
+  "ureader_tr":
+    passes: 0.709
+  "vflan":
+    passes: 0.709
+  "vg":
+    passes: 0.709
+  "viquae":
+    passes: 0.709
+  "vision_flan":
+    passes: 0.709
+  "vision_oritented":
+    passes: 0.709
+  "vistext":
+    passes: 0.709
+  "visual7w":
+    passes: 0.709
+  "visual_chat":
+    passes: 0.709
+  "visualmrc":
+    passes: 0.709
+  "vqaas":
+    passes: 0.709
+  "vqarad":
+    passes: 0.709
+  "vsr":
+    passes: 0.709
+  "websight":
+    passes: 0.709
+  "wikipedia_2m":
+    passes: 0.709
+  "wit":
+    passes: 0.709
+  "wizardlm":
+    passes: 0.709

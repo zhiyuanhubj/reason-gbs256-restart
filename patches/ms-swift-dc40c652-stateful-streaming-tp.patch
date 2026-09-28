@@ -1,0 +1,862 @@
+diff --git a/swift/arguments/base_args/base_args.py b/swift/arguments/base_args/base_args.py
+index 326fb6d8b..635927ea4 100644
+--- a/swift/arguments/base_args/base_args.py
++++ b/swift/arguments/base_args/base_args.py
+@@ -74,6 +74,8 @@ class BaseArguments(GenerationArguments, QuantizeArguments, DataArguments, Templ
+         packing (bool): Whether to enable packing of datasets. Default is False.
+         packing_length (Optional[int]): Length of packing. Default is None.
+         packing_num_proc (int): Number of processes used for packing, Default is 1.
++        packing_interval (int): Number of streaming source rows encoded before each
++            packing decision. Default is 128.
+         packing_strategy (Literal['binpack', 'sequential']): Packing algorithm. 'binpack' (default) uses
+             best-fit-decreasing bin packing (reorders samples); 'sequential' uses order-preserving greedy
+             packing (next-fit: a single open pack, flushed when the next sample doesn't fit) so the sample
+@@ -105,6 +107,7 @@ class BaseArguments(GenerationArguments, QuantizeArguments, DataArguments, Templ
+     packing: bool = False
+     packing_length: Optional[int] = None
+     packing_num_proc: int = 1
++    packing_interval: int = 128
+     packing_strategy: Literal['binpack', 'sequential'] = 'binpack'
+     lazy_tokenize: Optional[bool] = None
+     # hub
+diff --git a/swift/arguments/base_args/data_args.py b/swift/arguments/base_args/data_args.py
+index 01b8b0f7a..95c8a7c30 100644
+--- a/swift/arguments/base_args/data_args.py
++++ b/swift/arguments/base_args/data_args.py
+@@ -84,8 +84,16 @@ class DataArguments:
+     dataset_shuffle: bool = True
+     val_dataset_shuffle: bool = False
+     streaming: bool = False
++    # Shard the final shuffled streaming source by Megatron DP rank and let
++    # every rank read locally instead of scattering large packed Python objects
++    # across nodes.
++    streaming_shard_by_dp: bool = False
+     interleave_prob: Optional[List[float]] = None
+-    stopping_strategy: Literal['first_exhausted', 'all_exhausted'] = 'first_exhausted'
++    stopping_strategy: Literal[
++        'first_exhausted',
++        'all_exhausted',
++        'all_exhausted_without_replacement',
++    ] = 'first_exhausted'
+     shuffle_buffer_size: int = 1000
+ 
+     download_mode: Literal['force_redownload', 'reuse_dataset_if_exists'] = 'reuse_dataset_if_exists'
+diff --git a/swift/dataloader/dispatcher.py b/swift/dataloader/dispatcher.py
+index 8111467c6..c87250841 100644
+--- a/swift/dataloader/dispatcher.py
++++ b/swift/dataloader/dispatcher.py
+@@ -38,7 +38,11 @@ class DataLoaderDispatcher:
+                 [next(base_iter) for _ in range(self.world_size)]
+ 
+     def __iter__(self):
+-        base_iter = iter(self.base_dataloader)
++        # Only rank zero of each DP group fetches and collates source data; all
++        # other ranks receive their batch through scatter_object_list. Creating
++        # iterators everywhere starts redundant streaming/packing workers and
++        # makes every rank independently decode the same multimodal prefix.
++        base_iter = iter(self.base_dataloader) if self.rank == 0 else None
+         self._skip_batches(base_iter)
+         while True:
+             if self.rank == 0:
+diff --git a/swift/dataset/loader.py b/swift/dataset/loader.py
+index 11f00d48d..a5b09c231 100644
+--- a/swift/dataset/loader.py
++++ b/swift/dataset/loader.py
+@@ -231,7 +231,11 @@ def load_dataset(
+     shuffle: bool = False,
+     streaming: bool = False,
+     interleave_prob: Optional[List[float]] = None,
+-    stopping_strategy: Literal['first_exhausted', 'all_exhausted'] = 'first_exhausted',
++    stopping_strategy: Literal[
++        'first_exhausted',
++        'all_exhausted',
++        'all_exhausted_without_replacement',
++    ] = 'first_exhausted',
+     shuffle_buffer_size: int = 1000,
+     use_hf: Optional[bool] = None,
+     hub_token: Optional[str] = None,
+@@ -268,7 +272,8 @@ def load_dataset(
+             same length as datasets list. If None, datasets are concatenated instead. Default: None.
+         stopping_strategy: Strategy when interleaving datasets of different lengths:
+             - 'first_exhausted': Stop when shortest dataset is exhausted
+-            - 'all_exhausted': Continue until all datasets are exhausted
++            - 'all_exhausted': Continue until all datasets are exhausted, oversampling as needed
++            - 'all_exhausted_without_replacement': Consume each selected source row exactly once
+             Default: 'first_exhausted'.
+         shuffle_buffer_size: Buffer size for shuffling in streaming mode. Larger values
+             provide better randomization but use more memory. Default: 1000.
+diff --git a/swift/dataset/packing.py b/swift/dataset/packing.py
+index b9cae5b66..177943a03 100644
+--- a/swift/dataset/packing.py
++++ b/swift/dataset/packing.py
+@@ -136,6 +136,8 @@ class PackingDataset(Dataset):
+ 
+ class IterablePackingDataset(IterableDataset):
+ 
++    STREAMING_STATE_VERSION = 1
++
+     def __init__(
+         self,
+         template,
+@@ -163,6 +165,10 @@ class IterablePackingDataset(IterableDataset):
+         self.workers = []
+         self.cyclic = cyclic
+         self.packing_strategy = packing_strategy
++        self._carry = []
++        self._pending_packs = []
++        self._dispatched = 0
++        self._resume_packing_state = None
+         for _ in range(self.num_proc):
+             worker = mp.Process(target=self._processor, daemon=True)
+             worker.start()
+@@ -172,8 +178,16 @@ class IterablePackingDataset(IterableDataset):
+         while True:
+             i, data = self._in_queue.get()
+             encoded_data = {}
++            stream_ref = None
+             try:
++                if isinstance(data, dict):
++                    data = dict(data)
++                    stream_ref = data.pop('_stream_ref', None)
+                 encoded_data = self.template.encode(data, return_length=True)
++                encoded_items = encoded_data if isinstance(encoded_data, list) else [encoded_data]
++                for split_index, item in enumerate(encoded_items):
++                    if item and stream_ref is not None:
++                        item['_stream_ref'] = {'row': stream_ref, 'split': split_index}
+             except Exception as e:
+                 if self.strict and not isinstance(e, MaxLengthError):
+                     raise
+@@ -205,26 +219,124 @@ class IterablePackingDataset(IterableDataset):
+             for x in iterable:
+                 yield x
+ 
++    @property
++    def _stream_state_controller(self):
++        return getattr(self.dataset, '_stream_state_controller', None)
++
++    @staticmethod
++    def _item_ref(item):
++        ref = item.get('_stream_ref') if isinstance(item, dict) else None
++        if ref is None:
++            raise RuntimeError('stateful packed streaming row is missing _stream_ref')
++        return ref
++
++    @staticmethod
++    def _public_pack(pack):
++        result = []
++        for item in pack:
++            item = dict(item)
++            item.pop('_stream_ref', None)
++            result.append(item)
++        return result
++
++    def streaming_state_dict(self):
++        controller = self._stream_state_controller
++        if controller is None:
++            return None
++        return {
++            'version': self.STREAMING_STATE_VERSION,
++            'mixer': controller.state_dict(),
++            'carry': [self._item_ref(item) for item, _length in self._carry],
++            'carry_lengths': [int(length) for _item, length in self._carry],
++            'pending_packs': [[self._item_ref(item) for item in pack] for pack in self._pending_packs],
++            'dispatched': self._dispatched,
++            'packing_length': self.packing_length,
++            'packing_interval': self.packing_interval,
++            'packing_strategy': self.packing_strategy,
++        }
++
++    def load_streaming_state_dict(self, state):
++        controller = self._stream_state_controller
++        if controller is None:
++            raise RuntimeError('dataset does not expose a pass-aware stream state controller')
++        if int(state.get('version', -1)) != self.STREAMING_STATE_VERSION:
++            raise RuntimeError(f"unsupported packing stream state version: {state.get('version')}")
++        expected = (self.packing_length, self.packing_interval, self.packing_strategy)
++        actual = (int(state['packing_length']), int(state['packing_interval']), state['packing_strategy'])
++        if actual != expected:
++            raise RuntimeError(f'packing stream state identity mismatch: {actual}!={expected}')
++        controller.load_state_dict(state['mixer'])
++        self._resume_packing_state = state
++        self._dispatched = int(state['dispatched'])
++
++    def _encode_stream_refs(self, refs):
++        if not refs:
++            return []
++        controller = self._stream_state_controller
++        raw_refs = [ref['row'] for ref in refs]
++        rows = controller.fetch_refs(raw_refs)
++        encoded = []
++        for ref, row in zip(refs, rows):
++            row = dict(row)
++            row.pop('_stream_ref', None)
++            value = self.template.encode(row, return_length=True)
++            items = value if isinstance(value, list) else [value]
++            split = int(ref['split'])
++            if not 0 <= split < len(items):
++                raise RuntimeError(f'packing split index out of range: {split}/{len(items)}')
++            item = items[split]
++            item['_stream_ref'] = ref
++            encoded.append(item)
++        return encoded
++
++    def _restore_packing_state(self):
++        state = self._resume_packing_state
++        if state is None:
++            self._carry = []
++            self._pending_packs = []
++            return
++        carry_items = self._encode_stream_refs(state['carry'])
++        lengths = [int(length) for length in state['carry_lengths']]
++        actual_lengths = [len(item['input_ids']) for item in carry_items]
++        if actual_lengths != lengths:
++            raise RuntimeError(f'packing carry length changed across resume: {actual_lengths}!={lengths}')
++        self._carry = list(zip(carry_items, lengths))
++        self._pending_packs = [self._encode_stream_refs(pack) for pack in state['pending_packs']]
++        self._resume_packing_state = None
++
+     def __iter__(self):
++        self._restore_packing_state()
++        iterator = None
++
++        while self._pending_packs:
++            pack = self._pending_packs.pop(0)
++            self._dispatched += 1
++            yield self._public_pack(pack)
++
++        iterator = iter(self.dataset)
+         try:
+-            next(iter(self.dataset))
++            first = next(iterator)
+         except StopIteration:
+             return
+ 
++        # Reuse the iterator used for the empty check. Re-creating it here can
++        # initialize a streaming dataset twice, retaining two copies of its
++        # shuffle buffers and Parquet reader state before the first batch.
++        iterator = chain((first, ), iterator)
+         if self.cyclic:
+-            iterator = self.cyclic_iter(self.dataset)
+-        else:
+-            iterator = iter(self.dataset)
+-        data = []
++            iterator = chain(iterator, self.cyclic_iter(self.dataset))
++        data = self._carry
+         while True:
+             num_samples = self._put_data_in_queue(iterator)
+             finished = num_samples != self.packing_interval
+             data = self._fetch_data_out_queue(data, num_samples)
+             sequences, data = calculate_matched_group(
+                 data, self.packing_length, is_finished=finished, strategy=self.packing_strategy)
+-            res = []
+-            for row in sequences:
+-                res.append([r[0] for r in row])
+-            yield from res
++            self._carry = data
++            self._pending_packs.extend([[r[0] for r in row] for row in sequences])
++            while self._pending_packs:
++                pack = self._pending_packs.pop(0)
++                self._dispatched += 1
++                yield self._public_pack(pack)
+             if finished:
+                 break
+diff --git a/swift/megatron/arguments/megatron_args.py b/swift/megatron/arguments/megatron_args.py
+index 5afaacd22..533129d07 100644
+--- a/swift/megatron/arguments/megatron_args.py
++++ b/swift/megatron/arguments/megatron_args.py
+@@ -487,6 +487,9 @@ class MegatronArguments(RLHFMegatronArgumentsMixin, MegatronTunerMixin):
+     recompute_modules: List[str] = field(default_factory=lambda: ['core_attn'])
+     train_iters: Optional[int] = None
+     num_train_epochs: Optional[int] = None
++    # Treat train_iters as a safety ceiling and finish after one finite streaming
++    # source exposure instead of cycling it.
++    stop_at_dataset_end: bool = False
+ 
+     masked_softmax_fusion: bool = True
+     bias_dropout_fusion: bool = True
+diff --git a/swift/megatron/init.py b/swift/megatron/init.py
+index 6e1931562..ba104c63a 100644
+--- a/swift/megatron/init.py
++++ b/swift/megatron/init.py
+@@ -115,6 +115,7 @@ def _patch_unified_memory():
+ 
+ 
+ def _patch_mcore_bridge():
++    import inspect
+     import mcore_bridge
+     from mcore_bridge import GPTBridge
+     logger.info(f'mcore_bridge.__version__: {mcore_bridge.__version__}')
+@@ -130,13 +131,16 @@ def _patch_mcore_bridge():
+         processor=None,
+         save_missing_weights: Union[bool, str] = False,
+     ) -> None:
+-        origin_save_weights(
+-            self,
+-            mg_models,
+-            output_dir,
+-            peft_format=peft_format,
+-            max_shard_size=max_shard_size,
+-            save_missing_weights=save_missing_weights)
++        save_kwargs = {
++            'peft_format': peft_format,
++            'max_shard_size': max_shard_size,
++        }
++        # mcore-bridge added save_missing_weights after the version currently
++        # pinned by this training environment. Passing the newer keyword to an
++        # older bridge crashes after the MCore checkpoint was already written.
++        if 'save_missing_weights' in inspect.signature(origin_save_weights).parameters:
++            save_kwargs['save_missing_weights'] = save_missing_weights
++        origin_save_weights(self, mg_models, output_dir, **save_kwargs)
+         if processor is None or args is None:
+             return
+         hf_config = self.config.hf_config
+diff --git a/swift/megatron/trainers/base.py b/swift/megatron/trainers/base.py
+index d3925e138..adae1a2ec 100644
+--- a/swift/megatron/trainers/base.py
++++ b/swift/megatron/trainers/base.py
+@@ -1,17 +1,21 @@
+ # Copyright (c) ModelScope Contributors. All rights reserved.
+ import dataclasses
++import copy
+ import logging
+ import megatron.core
++import numpy as np
+ import operator
+ import os
++import random
+ import shutil
++import time
+ import torch
+ import torch.nn
+ from abc import ABC, abstractmethod
+ from contextlib import contextmanager, nullcontext
+ from functools import partial
+ from mcore_bridge import LoraParallelLinear
+-from megatron.core import mpu
++from megatron.core import mpu, tensor_parallel
+ from megatron.core.distributed import DistributedDataParallel as DDP
+ from megatron.core.distributed import FullyShardedDataParallel as megatron_FSDP
+ from megatron.core.distributed import finalize_model_grads
+@@ -56,6 +60,161 @@ mcore_016 = version.parse(megatron.core.__version__) >= version.parse('0.16.0rc0
+ logger = get_logger()
+ 
+ 
++class _FiniteStreamExhausted(StopIteration):
++    """Raised synchronously on every rank when any finite stream is exhausted."""
++
++
++def _extract_tensor_tree(value, tensors):
++    if isinstance(value, torch.Tensor):
++        index = len(tensors)
++        tensors.append(value)
++        return ('tensor', index, tuple(value.shape), str(value.dtype).removeprefix('torch.'))
++    if isinstance(value, dict):
++        return ('dict', [(key, _extract_tensor_tree(item, tensors)) for key, item in value.items()])
++    if isinstance(value, list):
++        return ('list', [_extract_tensor_tree(item, tensors) for item in value])
++    if isinstance(value, tuple):
++        return ('tuple', [_extract_tensor_tree(item, tensors) for item in value])
++    return ('value', value)
++
++
++def _restore_tensor_tree(spec, tensors):
++    kind = spec[0]
++    if kind == 'tensor':
++        return tensors[spec[1]]
++    if kind == 'dict':
++        return {key: _restore_tensor_tree(item, tensors) for key, item in spec[1]}
++    if kind == 'list':
++        return [_restore_tensor_tree(item, tensors) for item in spec[1]]
++    if kind == 'tuple':
++        return tuple(_restore_tensor_tree(item, tensors) for item in spec[1])
++    if kind == 'value':
++        return spec[1]
++    raise RuntimeError(f'unsupported TP batch tree node: {kind!r}')
++
++
++def _collect_tensor_descriptors(spec, descriptors):
++    kind = spec[0]
++    if kind == 'tensor':
++        descriptors.append(spec)
++    elif kind == 'dict':
++        for _, item in spec[1]:
++            _collect_tensor_descriptors(item, descriptors)
++    elif kind in {'list', 'tuple'}:
++        for item in spec[1]:
++            _collect_tensor_descriptors(item, descriptors)
++
++
++class _TensorParallelBroadcastIterator:
++    """Let TP rank zero own the CPU data pipeline and broadcast collated batches.
++
++    Tensor payloads are transferred directly with NCCL after moving them to the
++    destination GPU. Only the small Python tree specification is object-
++    broadcast, avoiding a second serialized copy of packed pixel tensors.
++    """
++
++    def __init__(self, iterator):
++        self.group = mpu.get_tensor_model_parallel_group()
++        self.tp_rank = torch.distributed.get_rank(group=self.group)
++        self.source = torch.distributed.get_global_rank(self.group, 0)
++        self.iterator = iter(iterator) if self.tp_rank == 0 else None
++        self.device = get_current_device()
++
++    def __iter__(self):
++        return self
++
++    def __next__(self):
++        item = None
++        error = None
++        status_value = 1
++        if self.tp_rank == 0:
++            try:
++                item = next(self.iterator)
++            except StopIteration:
++                status_value = 0
++            except BaseException as exc:
++                status_value = -1
++                error = f'{type(exc).__name__}: {exc}'
++
++        status = torch.tensor([status_value], dtype=torch.int32, device=self.device)
++        torch.distributed.broadcast(status, src=self.source, group=self.group)
++        status_value = int(status.item())
++        if status_value == 0:
++            raise StopIteration
++        if status_value < 0:
++            payload = [error]
++            torch.distributed.broadcast_object_list(payload, src=self.source, group=self.group, device=self.device)
++            raise RuntimeError(f'TP data source failed: {payload[0]}')
++
++        cpu_tensors = []
++        spec = _extract_tensor_tree(item, cpu_tensors) if self.tp_rank == 0 else None
++        payload = [spec]
++        torch.distributed.broadcast_object_list(payload, src=self.source, group=self.group, device=self.device)
++        spec = payload[0]
++        descriptors = []
++        _collect_tensor_descriptors(spec, descriptors)
++        if self.tp_rank == 0 and len(cpu_tensors) != len(descriptors):
++            raise RuntimeError('TP batch tensor metadata mismatch on source rank')
++
++        # Release the container before copying the potentially multi-GiB image
++        # tensor. Each source tensor reference is dropped immediately after its
++        # GPU copy has been enqueued.
++        del item
++        gpu_tensors = []
++        for index, descriptor in enumerate(descriptors):
++            _, expected_index, shape, dtype_name = descriptor
++            if expected_index != index:
++                raise RuntimeError(f'non-contiguous TP batch tensor index: {expected_index}!={index}')
++            dtype = getattr(torch, dtype_name)
++            if self.tp_rank == 0:
++                tensor = cpu_tensors[index]
++                if tensor.layout is not torch.strided:
++                    raise RuntimeError(f'TP data broadcast requires strided tensors, got {tensor.layout}')
++                tensor = tensor.to(device=self.device, non_blocking=True).contiguous()
++                cpu_tensors[index] = None
++            else:
++                tensor = torch.empty(shape, dtype=dtype, device=self.device)
++            torch.distributed.broadcast(tensor, src=self.source, group=self.group)
++            gpu_tensors.append(tensor)
++        return _restore_tensor_tree(spec, gpu_tensors)
++
++
++class _SynchronizedFiniteIterator:
++    """Synchronize EOF per microbatch without retaining an accumulation group.
++
++    Every rank fetches at most one local batch, then WORLD-reduces a one-bit
++    availability flag. If any rank is exhausted, unmatched local batches are
++    discarded and all ranks stop before entering the next model collective.
++    """
++
++    def __init__(self, iterator):
++        self.iterator = iter(iterator)
++        self.exhausted = False
++
++    def __iter__(self):
++        return self
++
++    def __next__(self):
++        if self.exhausted:
++            raise _FiniteStreamExhausted
++
++        local_available = True
++        item = None
++        try:
++            item = next(self.iterator)
++        except StopIteration:
++            local_available = False
++
++        available = torch.tensor(
++            [int(local_available)], dtype=torch.int32, device=get_current_device())
++        torch.distributed.all_reduce(available, op=torch.distributed.ReduceOp.MIN)
++        if not bool(available.item()):
++            self.exhausted = True
++            del item
++            raise _FiniteStreamExhausted
++        return item
++
++
+ class BaseMegatronTrainer(ABC):
+ 
+     def __init__(self, args, template: Template):
+@@ -77,7 +236,14 @@ class BaseMegatronTrainer(ABC):
+         self.data_collator = self._get_data_collator()
+ 
+         self.state = TrainerState(max_steps=args.train_iters)
+-        initialize_embedding = args.new_special_tokens or args.task_type == 'seq_cls'
++        # Fresh runs must initialize newly added token/classification weights.
++        # A resume restores those weights from MCore; reinitializing before load
++        # is both incorrect and incompatible with DP-sharded optimizer main_param.
++        initialize_embedding = (
++            (args.new_special_tokens or args.task_type == 'seq_cls')
++            and args.mcore_model is None
++            and args.mcore_adapter is None
++        )
+         if initialize_embedding:
+             for m in self.unwrapped_models:
+                 self._initialize_embedding(m)
+@@ -576,13 +742,202 @@ class BaseMegatronTrainer(ABC):
+             raise ValueError(f'Source path is neither a file nor a directory: {src_path}')
+ 
+     def _prepare_data_iterator(self, train_dataset, val_dataset=None, use_origin_cyclic: bool = False):
++        restored_stream_state = self._load_streaming_data_state(train_dataset)
+         train_dataloader, val_dataloader = self._prepare_dataloader(train_dataset, val_dataset)
+-        train_data_iterator = iter(self.cyclic_iter(train_dataloader, use_origin_cyclic=use_origin_cyclic))
++        if self.args.stop_at_dataset_end:
++            if not self.args.streaming:
++                raise RuntimeError('stop_at_dataset_end is only supported for streaming datasets')
++            train_data_iterator = iter(train_dataloader)
++        else:
++            train_data_iterator = iter(self.cyclic_iter(train_dataloader, use_origin_cyclic=use_origin_cyclic))
++        tp_data_broadcast = os.environ.get('TP_DATALOADER_BROADCAST', 'false').lower() in {
++            '1', 'true', 'yes', 'on'
++        }
++        if tp_data_broadcast:
++            if not self.args.streaming:
++                raise RuntimeError('TP data-loader broadcast currently requires a streaming dataset')
++            if self.args.pipeline_model_parallel_size != 1:
++                raise RuntimeError('TP data-loader broadcast currently requires pipeline_model_parallel_size=1')
++            train_data_iterator = _TensorParallelBroadcastIterator(train_data_iterator)
++        if restored_stream_state:
++            if is_master():
++                logger.info(
++                    f'Restored indexed streaming cursor at {self.state.consumed_train_samples} '
++                    'global samples; historical batch replay was skipped.')
++        else:
++            self._replay_streaming_data_iterator(train_data_iterator)
++        if self.args.stop_at_dataset_end:
++            if self.args.pipeline_model_parallel_size != 1:
++                raise RuntimeError(
++                    'memory-bounded finite-stream EOF synchronization requires '
++                    'pipeline_model_parallel_size=1')
++            if self.args.virtual_pipeline_model_parallel_size is not None:
++                raise RuntimeError(
++                    'memory-bounded finite-stream EOF synchronization does not support '
++                    'virtual pipeline parallelism')
++            train_data_iterator = _SynchronizedFiniteIterator(train_data_iterator)
+         val_data_iterator = None
+         if val_dataset is not None:
+             val_data_iterator = iter(self.cyclic_iter(val_dataloader, use_origin_cyclic=use_origin_cyclic))
++            if tp_data_broadcast:
++                val_data_iterator = _TensorParallelBroadcastIterator(val_data_iterator)
+         return train_data_iterator, val_data_iterator
+ 
++    @staticmethod
++    def _snapshot_training_rng():
++        tracker_states = tensor_parallel.get_cuda_rng_tracker().get_states()
++        return {
++            'python': random.getstate(),
++            'numpy': np.random.get_state(),
++            'torch': torch.get_rng_state(),
++            'cuda': torch.cuda.get_rng_state(),
++            'tracker': copy.deepcopy(tracker_states),
++        }
++
++    @staticmethod
++    def _restore_training_rng(state):
++        random.setstate(state['python'])
++        np.random.set_state(state['numpy'])
++        torch.set_rng_state(state['torch'])
++        torch.cuda.set_rng_state(state['cuda'])
++        tensor_parallel.get_cuda_rng_tracker().set_states(state['tracker'])
++
++    def _replay_streaming_data_iterator(self, train_data_iterator):
++        """Reconstruct the exact next dispatched batch after a streaming resume.
++
++        consumed_train_samples counts global *post-packing* dataset items. Replay
++        through the fully composed cyclic iterator so HF shuffle/interleave,
++        packing carry/bin boundaries, finite-stream cycles, DP grouping and
++        discarded partial tails all reach the same state as uninterrupted
++        training. Main/model RNG is restored afterwards; the dataloader has its
++        own deterministic generator.
++        """
++        args = self.args
++        consumed = self.state.consumed_train_samples
++        if not args.streaming or consumed <= 0:
++            return
++
++        dp = mpu.get_data_parallel_world_size()
++        per_round = dp * args.micro_batch_size
++        if consumed != self.state.iteration * args.global_batch_size:
++            raise RuntimeError(
++                f'inconsistent streaming cursor: consumed_train_samples={consumed}, '
++                f'iteration={self.state.iteration}, global_batch_size={args.global_batch_size}')
++        if consumed % per_round:
++            raise RuntimeError(
++                f'streaming cursor {consumed} is not divisible by DP*micro_batch_size={per_round}')
++        if args.packing and args.micro_batch_size != 1:
++            raise RuntimeError('exact packed streaming resume requires micro_batch_size=1')
++
++        rounds = consumed // per_round
++        expected_rounds = self.state.iteration * args.num_microbatches
++        if rounds != expected_rounds:
++            raise RuntimeError(
++                f'streaming replay mismatch: rounds={rounds}, '
++                f'iteration*num_microbatches={expected_rounds}')
++
++        if is_master():
++            logger.warning(
++                f'Replaying {rounds} dispatched streaming batch(es) to restore the exact '
++                f'post-packing data cursor ({consumed} global samples).')
++        rng_state = self._snapshot_training_rng()
++        report_every = max(rounds // 20, 1)
++        try:
++            for index in range(rounds):
++                next(train_data_iterator)
++                if is_master() and ((index + 1) % report_every == 0 or index + 1 == rounds):
++                    logger.info(f'Streaming resume replay: {index + 1}/{rounds} batches')
++        except StopIteration as exc:
++            raise RuntimeError(
++                f'cyclic streaming iterator ended during resume replay at {index + 1}/{rounds}') from exc
++        finally:
++            self._restore_training_rng(rng_state)
++
++    @staticmethod
++    def _streaming_data_state_path(checkpoint_dir, dp_rank):
++        return os.path.join(checkpoint_dir, 'dataloader_state', f'dp_rank_{dp_rank:05d}.pt')
++
++    def _load_streaming_data_state(self, train_dataset) -> bool:
++        args = self.args
++        consumed = self.state.consumed_train_samples
++        if not args.streaming or consumed <= 0 or args.mcore_model is None:
++            return False
++        dp_rank = mpu.get_data_parallel_rank()
++        path = self._streaming_data_state_path(args.mcore_model, dp_rank)
++        available = torch.tensor(
++            [int(os.path.isfile(path))], device=get_current_device(), dtype=torch.int32)
++        torch.distributed.all_reduce(available, op=torch.distributed.ReduceOp.MIN)
++        if not available.item():
++            return False
++
++        started = time.monotonic()
++        if mpu.get_tensor_model_parallel_rank() == 0:
++            loader = getattr(train_dataset, 'load_streaming_state_dict', None)
++            if loader is None:
++                raise RuntimeError('checkpoint has indexed dataloader state but train dataset cannot restore it')
++            payload = torch.load(path, map_location='cpu', weights_only=False)
++            expected_rounds = self.state.iteration * args.num_microbatches
++            identity = (
++                int(payload.get('iteration', -1)),
++                int(payload.get('consumed_train_samples', -1)),
++                int(payload.get('dp_size', -1)),
++                int(payload['state'].get('dispatched', -1)),
++            )
++            expected = (
++                self.state.iteration,
++                consumed,
++                mpu.get_data_parallel_world_size(),
++                expected_rounds,
++            )
++            if identity != expected:
++                raise RuntimeError(f'indexed dataloader checkpoint identity mismatch: {identity}!={expected}')
++            loader(payload['state'])
++        torch.distributed.barrier()
++        if is_master():
++            logger.info(f'Indexed streaming cursor state loaded in {time.monotonic() - started:.2f}s.')
++        return True
++
++    def _snapshot_streaming_data_state(self):
++        if not self.args.streaming or mpu.get_tensor_model_parallel_rank() != 0:
++            return None
++        dataset = getattr(self, '_train_dataset_for_state', None)
++        getter = getattr(dataset, 'streaming_state_dict', None)
++        # Keep references/cursors only, never the encoded microbatches. The
++        # async packer exposes its consumed snapshot rather than read-ahead.
++        return copy.deepcopy(getter()) if getter is not None else None
++
++    def _save_streaming_data_state(self, output_dir, stream_state=None):
++        args = self.args
++        if not args.streaming:
++            return
++        train_dataset = getattr(self, '_train_dataset_for_state', None)
++        if train_dataset is None:
++            return
++        if mpu.get_tensor_model_parallel_rank() == 0:
++            getter = getattr(train_dataset, 'streaming_state_dict', None)
++            if stream_state is None:
++                stream_state = getter() if getter is not None else None
++            if stream_state is not None:
++                expected_rounds = self.state.iteration * args.num_microbatches
++                if int(stream_state.get('dispatched', -1)) != expected_rounds:
++                    raise RuntimeError(
++                        f'indexed dataloader cursor mismatch: dispatched={stream_state.get("dispatched")} '
++                        f'expected={expected_rounds}')
++                state_dir = os.path.join(output_dir, 'dataloader_state')
++                os.makedirs(state_dir, exist_ok=True)
++                dp_rank = mpu.get_data_parallel_rank()
++                path = self._streaming_data_state_path(output_dir, dp_rank)
++                tmp = f'{path}.tmp.{os.getpid()}'
++                torch.save({
++                    'version': 1,
++                    'iteration': self.state.iteration,
++                    'consumed_train_samples': self.state.consumed_train_samples,
++                    'dp_size': mpu.get_data_parallel_world_size(),
++                    'state': stream_state,
++                }, tmp)
++                os.replace(tmp, path)
++        torch.distributed.barrier()
++
+     def setup_model_training(self):
+         args = self.args
+         config = self.config
+@@ -654,6 +1009,7 @@ class BaseMegatronTrainer(ABC):
+ 
+     def setup_training(self, train_dataset, val_dataset):
+         self.setup_model_training()
++        self._train_dataset_for_state = train_dataset
+         args = self.args
+         if args.virtual_pipeline_model_parallel_size is not None:
+             train_data_iterator, val_data_iterator = [], []
+@@ -736,7 +1092,33 @@ class BaseMegatronTrainer(ABC):
+     def train(self, train_dataset, val_dataset):
+         train_data_iterator, val_data_iterator = self.setup_training(train_dataset, val_dataset)
+         while self.state.iteration < self.args.train_iters:
+-            self.run_train_step(train_data_iterator, val_data_iterator)
++            # If EOF appears after a partial accumulation group, restore the
++            # durable optimizer-step RNG boundary before saving.
++            step_rng_state = self._snapshot_training_rng() if self.args.stop_at_dataset_end else None
++            step_stream_state = self._snapshot_streaming_data_state() if self.args.stop_at_dataset_end else None
++            try:
++                self.run_train_step(train_data_iterator, val_data_iterator)
++            except _FiniteStreamExhausted:
++                if not self.args.stop_at_dataset_end:
++                    raise
++                # A partial gradient-accumulation group is intentionally
++                # discarded. The durable cursor remains at the last completed
++                # optimizer-step boundary.
++                self.optimizer.zero_grad()
++                self._restore_training_rng(step_rng_state)
++                if self.enable_routing_replay:
++                    RouterReplay.clear_global_router_replay_action()
++                    RouterReplay.clear_global_indices()
++                if is_master():
++                    logger.info(
++                        f'Finite streaming dataset exhausted after {self.state.iteration} '
++                        f'complete optimizer step(s); saving the final durable state.')
++                # Fetching a partial group (or an unmatched batch on another
++                # DP rank) advances the loader without an optimizer update.
++                # Save the complete pre-step cursor, including mixer/packing
++                # state, without mutating the still-active prefetch producer.
++                self.save_checkpoint(stream_state=step_stream_state)
++                break
+         self.finalize_training()
+ 
+     def _determine_best_metric(self, metrics) -> bool:
+@@ -769,13 +1151,14 @@ class BaseMegatronTrainer(ABC):
+         torch.distributed.all_reduce(tensor)
+         return is_new_best_metric
+ 
+-    def save_checkpoint(self):
++    def save_checkpoint(self, stream_state=None):
+         args = self.args
+         state = self.state
+         args.consumed_train_samples = state.consumed_train_samples
+         iteration = state.iteration
+         output_dir = os.path.join(args.output_dir, f'checkpoint-{iteration}')
+         os.makedirs(output_dir, exist_ok=True)
++        self._save_streaming_data_state(output_dir, stream_state=stream_state)
+         args_path = os.path.join(os.path.dirname(output_dir), 'args.json')
+         self.copy_path(args_path, os.path.join(output_dir, 'args.json'))
+         if args.save_safetensors and args.no_save_optim:
+diff --git a/swift/megatron/trainers/utils.py b/swift/megatron/trainers/utils.py
+index 66d1e5dfd..b1c756809 100644
+--- a/swift/megatron/trainers/utils.py
++++ b/swift/megatron/trainers/utils.py
+@@ -335,6 +335,10 @@ class MegatronDataLoaderDispatcher(DataLoaderDispatcher):
+ 
+ 
+ def build_streaming_dataloader(args, dataset, collate_fn):
++    # Keep worker seeding independent from model RNG. On resume the iterator is
++    # replayed from this seed to reconstruct worker-side preprocessing state.
++    data_generator = torch.Generator()
++    data_generator.manual_seed(args.data_seed)
+     base_dataloader = torch.utils.data.DataLoader(
+         dataset,
+         num_workers=args.dataloader_num_workers,
+@@ -343,7 +347,10 @@ def build_streaming_dataloader(args, dataset, collate_fn):
+         batch_size=args.micro_batch_size,
+         prefetch_factor=args.dataloader_prefetch_factor if args.dataloader_num_workers > 0 else None,
+         persistent_workers=args.dataloader_persistent_workers if args.dataloader_num_workers > 0 else False,
++        generator=data_generator,
+     )
++    if getattr(args, 'streaming_shard_by_dp', False):
++        return base_dataloader
+     return MegatronDataLoaderDispatcher(base_dataloader)
+ 
+ 
+diff --git a/swift/pipelines/train/sft.py b/swift/pipelines/train/sft.py
+index 8d547f410..cfb3d9e90 100644
+--- a/swift/pipelines/train/sft.py
++++ b/swift/pipelines/train/sft.py
+@@ -105,6 +105,9 @@ class SwiftSft(SwiftPipeline, TunerMixin):
+             train_datasets, val_datasets = [], []
+         if args.dataset or args.val_dataset:
+             train_dataset, val_dataset = self._get_dataset()
++            if args.streaming and getattr(args, 'streaming_shard_by_dp', False):
++                train_dataset = self._shard_streaming_dataset_by_dp(train_dataset, 'train')
++                val_dataset = self._shard_streaming_dataset_by_dp(val_dataset, 'validation')
+             train_dataset, val_dataset = self._encode_dataset(train_dataset, val_dataset, pre_process=pre_process)
+             if train_dataset is not None:
+                 train_datasets.append(train_dataset)
+@@ -119,9 +122,32 @@ class SwiftSft(SwiftPipeline, TunerMixin):
+         if not pre_process:
+             return datasets
+         datasets = self._post_process_datasets(datasets)
+-        self._show_dataset(*datasets)
++        # Calling next(iter(...)) for a streaming dataset only on global rank 0
++        # advances that rank's persistent encoding/packing workers before the
++        # real dataloader starts. Other TP-coordinate DP groups do not perform
++        # the preview, so any stochastic preprocessing would diverge. Keep all
++        # groups at the same initial stream state; non-streaming datasets remain
++        # safe to preview.
++        if not args.streaming:
++            self._show_dataset(*datasets)
++        else:
++            logger.info('Skipping dataset preview for deterministic streaming state.')
+         return datasets
+ 
++    @staticmethod
++    def _shard_streaming_dataset_by_dp(dataset, name):
++        if dataset is None:
++            return None
++        from megatron.core import mpu
++        dp_rank = mpu.get_data_parallel_rank(with_context_parallel=True)
++        dp_size = mpu.get_data_parallel_world_size(with_context_parallel=True)
++
++        def keep_rank(_row, index):
++            return index % dp_size == dp_rank
++
++        logger.info(f'Locally sharding {name} streaming dataset: DP rank {dp_rank}/{dp_size}')
++        return dataset.filter(keep_rank, with_indices=True)
++
+     def _post_process_datasets(self, datasets: List) -> List:
+         args = self.args
+         predict_with_generate = getattr(args, 'predict_with_generate', False)
+@@ -143,6 +169,7 @@ class SwiftSft(SwiftPipeline, TunerMixin):
+                     num_proc=args.dataset_num_proc,
+                     packing_length=args.packing_length,
+                     packing_num_proc=args.packing_num_proc,
++                    packing_interval=args.packing_interval,
+                     packing_strategy=args.packing_strategy,
+                     strict=args.strict,
+                     load_from_cache_file=args.load_from_cache_file)

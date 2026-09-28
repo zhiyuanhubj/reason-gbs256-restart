@@ -1,0 +1,44 @@
+# 训练产物 / 大文件目录全部忽略
+outputs/
+logs/
+*.log
+models/
+data/
+.deps/
+wandb/
+swanlab/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.venv/
+.eggs/
+build/
+dist/
+
+# 编辑器
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 系统
+.DS_Store
+Thumbs.db
+
+# 凭证（双保险，绝不要进 git）
+.env
+.env.*
+*.pem
+*.key
+.netrc
+.git-credentials
+
+# Large local datasets/checkpoints and temporary resume staging
+genshin-encrypted/
+genshin-parquet/
+genshin-only/
+checkpoints/
+resume-staging/

@@ -1,0 +1,307 @@
+version: 1
+
+# Marvel's Spider-Man 2 is a merged JSONL file. OneVision uses the named-subset Parquet
+# layout documented in docs/dataset_paths.md. The mixture parser counts each
+# source using its own format, while ms-swift accepts both path types together.
+format: mixed
+default_dataset_format: parquet
+root: /projects/b6db/opensima/vlm_data/LLaVA-OneVision-1.5-Instruct-Data-qwen-format
+val: /projects/b6db/opensima/sft_data/processed_bc_2077_spider/_by_game/marvel_spider_2/val.jsonl
+download: never
+hf_max_workers: 8
+
+loader:
+  streaming: true
+  dataset_shuffle: true
+  shuffle_buffer_size: 10000
+  dataset_mix: interleave
+  interleave_unit: dataset
+  interleave_weight: sample_count
+  stopping_strategy: all_exhausted
+  enable_channel_loss: true
+  # The launcher maps both the game's `game` and OneVision's `data_source` to
+  # ms-swift's canonical `channel` field.
+  channel_columns:
+    game: channel
+    data_source: channel
+  add_genshin_special_tokens: true
+
+# Spider-Man 2 train rows: 60,711. Validation rows: 31.
+# LLaVA-OneVision rows: 21,847,820. LLaVA has no validation dataset.
+
+
+# passes controls total sample exposure for the whole task. The trainer still
+# runs exactly one epoch over these expanded quotas.
+datasets:
+  marvel_spider_2:
+    path: /projects/b6db/opensima/sft_data/processed_bc_2077_spider/_by_game/marvel_spider_2/train.jsonl
+    format: jsonl
+    passes: 3.0
+  "CLEVR":
+    passes: 0.147
+  "CLEVR-Math":
+    passes: 0.147
+  "Docmatix":
+    passes: 0.147
+  "Evol-Instruct-GPT4-Turbo":
+    passes: 0.147
+  "FigureQA":
+    passes: 0.147
+  "GEOS":
+    passes: 0.147
+  "GeoQA+":
+    passes: 0.147
+  "Geometry3K":
+    passes: 0.147
+  "IconQA":
+    passes: 0.147
+  "OmniDocBench_train":
+    passes: 0.147
+  "PMC-VQA":
+    passes: 0.147
+  "Super-CLEVR":
+    passes: 0.147
+  "VisualWebInstruct":
+    passes: 0.147
+  "VizWiz":
+    passes: 0.147
+  "ai2d":
+    passes: 0.147
+  "alfredplpl":
+    passes: 0.147
+  "alfworld":
+    passes: 0.147
+  "allava":
+    passes: 0.147
+  "allava_instruct_laion4v":
+    passes: 0.147
+  "allava_instruct_vflan4v":
+    passes: 0.147
+  "allenai_pixmo_docs":
+    passes: 0.147
+  "amc_aime":
+    passes: 0.147
+  "aokvqa":
+    passes: 0.147
+  "aops_forum":
+    passes: 0.147
+  "arxiv_figs":
+    passes: 0.147
+  "arxivqa":
+    passes: 0.147
+  "cambrian":
+    passes: 0.147
+  "chart2text":
+    passes: 0.147
+  "chartqa":
+    passes: 0.147
+  "chrome_writting":
+    passes: 0.147
+  "cn_k12":
+    passes: 0.147
+  "coco":
+    passes: 0.147
+  "code_feedback_66k":
+    passes: 0.147
+  "datikz":
+    passes: 0.147
+  "diagram":
+    passes: 0.147
+  "docvqa_train":
+    passes: 0.147
+  "dvqa":
+    passes: 0.147
+  "finqa":
+    passes: 0.147
+  "geo170k_align":
+    passes: 0.147
+  "geo170k_qa":
+    passes: 0.147
+  "geo3k":
+    passes: 0.147
+  "geomverse":
+    passes: 0.147
+  "gpt4o":
+    passes: 0.147
+  "gpt4v":
+    passes: 0.147
+  "gqa":
+    passes: 0.147
+  "gsm8k":
+    passes: 0.147
+  "hateful_memes":
+    passes: 0.147
+  "hitab":
+    passes: 0.147
+  "hme100k":
+    passes: 0.147
+  "iam":
+    passes: 0.147
+  "idk":
+    passes: 0.147
+  "ifeval_like":
+    passes: 0.147
+  "iiit":
+    passes: 0.147
+  "image_textualization":
+    passes: 0.147
+  "infographic_azuregpt4v":
+    passes: 0.147
+  "infographic_vqa":
+    passes: 0.147
+  "intergps":
+    passes: 0.147
+  "invoices-and-receipts_ocr":
+    passes: 0.147
+  "laion_220k":
+    passes: 0.147
+  "latex_ocr":
+    passes: 0.147
+  "llava_cot_100k":
+    passes: 0.147
+  "llava_instruct":
+    passes: 0.147
+  "llava_wild":
+    passes: 0.147
+  "llavar":
+    passes: 0.147
+  "llrv_gpt4v":
+    passes: 0.147
+  "lrv_chart":
+    passes: 0.147
+  "magpie_pro":
+    passes: 0.147
+  "magpie_ultra":
+    passes: 0.147
+  "mapqa":
+    passes: 0.147
+  "math":
+    passes: 0.147
+  "mathinstruct_262k":
+    passes: 0.147
+  "mathqa":
+    passes: 0.147
+  "mavis_math_metagen":
+    passes: 0.147
+  "ocr":
+    passes: 0.147
+  "ocrvqa":
+    passes: 0.147
+  "olympiads":
+    passes: 0.147
+  "oodvqa":
+    passes: 0.147
+  "open_orca":
+    passes: 0.147
+  "openmathinstruct":
+    passes: 0.147
+  "orca_994k":
+    passes: 0.147
+  "orca_agentinstruct":
+    passes: 0.147
+  "oroikon_chart_captioning":
+    passes: 0.147
+  "pathvqa":
+    passes: 0.147
+  "plotqa":
+    passes: 0.147
+  "raven":
+    passes: 0.147
+  "rects":
+    passes: 0.147
+  "rendered_text":
+    passes: 0.147
+  "robut_sqa":
+    passes: 0.147
+  "robut_wikisql":
+    passes: 0.147
+  "robut_wtq":
+    passes: 0.147
+  "rootsautomation":
+    passes: 0.147
+  "scienceqa":
+    passes: 0.147
+  "screen2words":
+    passes: 0.147
+  "screen_qa":
+    passes: 0.147
+  "sharegpt4o":
+    passes: 0.147
+  "sharegpt4v":
+    passes: 0.147
+  "sherlock":
+    passes: 0.147
+  "sroie_data":
+    passes: 0.147
+  "st_vqa":
+    passes: 0.147
+  "svit":
+    passes: 0.147
+  "synthetic_amc":
+    passes: 0.147
+  "synthetic_math":
+    passes: 0.147
+  "tabmwp":
+    passes: 0.147
+  "tallyqa":
+    passes: 0.147
+  "tat_qa":
+    passes: 0.147
+  "textcaps":
+    passes: 0.147
+  "textocr_gpt4v":
+    passes: 0.147
+  "textvqa":
+    passes: 0.147
+  "tinychart_train":
+    passes: 0.147
+  "tqa":
+    passes: 0.147
+  "unigeo":
+    passes: 0.147
+  "ureader_cap":
+    passes: 0.147
+  "ureader_chart":
+    passes: 0.147
+  "ureader_ie":
+    passes: 0.147
+  "ureader_kg":
+    passes: 0.147
+  "ureader_ocr":
+    passes: 0.147
+  "ureader_qa":
+    passes: 0.147
+  "ureader_tr":
+    passes: 0.147
+  "vflan":
+    passes: 0.147
+  "vg":
+    passes: 0.147
+  "viquae":
+    passes: 0.147
+  "vision_flan":
+    passes: 0.147
+  "vision_oritented":
+    passes: 0.147
+  "vistext":
+    passes: 0.147
+  "visual7w":
+    passes: 0.147
+  "visual_chat":
+    passes: 0.147
+  "visualmrc":
+    passes: 0.147
+  "vqaas":
+    passes: 0.147
+  "vqarad":
+    passes: 0.147
+  "vsr":
+    passes: 0.147
+  "websight":
+    passes: 0.147
+  "wikipedia_2m":
+    passes: 0.147
+  "wit":
+    passes: 0.147
+  "wizardlm":
+    passes: 0.147

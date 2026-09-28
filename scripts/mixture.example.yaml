@@ -1,0 +1,35 @@
+# 多游戏混训采样配置示例
+# ----------------------------------------------------------------------
+# 每个游戏的 jsonl 每行必须含 "channel" 字段(=游戏名)，这样训练开 --enable_channel_loss
+# 后会自动按 loss_<游戏> 分别记录到 wandb。可用 scripts/12_add_channel.py 批量加。
+#
+# 每个游戏采样条数 N 三选一(优先级 sample > multiplier > weight)：
+#   sample:     直接采 N 条(N 大于文件行数时 ms-swift 自动重复超采)
+#   multiplier: N = round(multiplier × 文件行数)   1.0=过一遍, 2.0=这游戏一个epoch训两遍
+#   weight:     相对权重(见下)
+# 都不写 = 1× 原样。
+#
+# weight 模式:
+#   - 设了顶层 total_samples: 各游戏 N = total_samples × weight / Σweight (严格按比例分配总量)
+#   - 没设 total_samples:     weight 等价于 multiplier(× 自身行数)
+#
+# 改完只动这个 yaml，不用手动复制数据；ms-swift 在 dataloader 里完成超采/重复。
+# ----------------------------------------------------------------------
+
+total_samples: null            # null=按 multiplier/weight 各自算；设数值则 weight 按比例分配总量
+
+val: /fsx/home/zhiyuan/yuanshen_processed/_merged/val.jsonl
+
+games:
+  genshin:
+    path: /fsx/home/zhiyuan/yuanshen_processed/_merged/train.jsonl
+    multiplier: 1.0            # 原神原样过一遍
+
+  # 下面是多游戏时的写法示例(把路径换成你各游戏处理好的 jsonl)：
+  # honkai:
+  #   path: /fsx/home/zhiyuan/honkai_processed/_merged/train.jsonl
+  #   multiplier: 2.0          # 崩坏数据少，一个 epoch 多训一倍
+  #
+  # zzz:
+  #   path: /fsx/home/zhiyuan/zzz_processed/_merged/train.jsonl
+  #   sample: 50000            # 绝区零固定采 5 万条

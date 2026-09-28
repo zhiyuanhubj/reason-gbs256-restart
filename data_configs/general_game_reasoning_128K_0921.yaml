@@ -1,0 +1,42 @@
+version: 1
+
+# Polished reasoning 0919 only: Genshin, Cyberpunk 2077 and Spider-Man 2.
+# Raw action repair -> per-game SFT -> 06 -> 07; human_reasoning_polish.
+# Each source has 64 validation samples. JSONL uses absolute image paths.
+# passes controls total sample exposure; train this mixture for one epoch.
+# Set MAX_LEN=131072 and PACKING_LENGTH=131072 in the training launcher.
+format: jsonl
+val:
+  - /projects/b6db/opensima/sft_data/reasoning_0908_polish_jsonl_0919/genshin_polish_reasoning_0919_action_repaired_83h/_merged/val.jsonl
+  - /projects/b6db/opensima/sft_data/reasoning_0908_polish_jsonl_0919/cyberpunk2077_polish_reasoning_0919_action_repaired_76h/_merged/val.jsonl
+  - /projects/b6db/opensima/sft_data/reasoning_0908_polish_jsonl_0919/spiderman2_polish_reasoning_0919_action_repaired_27h/_merged/val.jsonl
+download: never
+
+loader:
+  streaming: true
+  dataset_shuffle: true
+  shuffle_buffer_size: 64
+  dataset_mix: interleave
+  interleave_unit: subdataset
+  interleave_weight: sample_count
+  stopping_strategy: all_exhausted_without_replacement
+  enable_channel_loss: true
+  channel_columns:
+    conversations: messages
+    game: channel
+    data_source: channel
+  add_genshin_special_tokens: true
+
+datasets:
+  genshin_reasoning:
+    # 38,286 train + 64 validation samples.
+    path: /projects/b6db/opensima/sft_data/reasoning_0908_polish_jsonl_0919/genshin_polish_reasoning_0919_action_repaired_83h/_merged/train.jsonl
+    passes: 3.0
+  cyberpunk2077_reasoning:
+    # 27,807 train + 64 validation samples.
+    path: /projects/b6db/opensima/sft_data/reasoning_0908_polish_jsonl_0919/cyberpunk2077_polish_reasoning_0919_action_repaired_76h/_merged/train.jsonl
+    passes: 3.0
+  spiderman2_reasoning:
+    # 9,642 train + 64 validation samples.
+    path: /projects/b6db/opensima/sft_data/reasoning_0908_polish_jsonl_0919/spiderman2_polish_reasoning_0919_action_repaired_27h/_merged/train.jsonl
+    passes: 3.0

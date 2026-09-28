@@ -1,0 +1,37 @@
+version: 1
+
+# Cyberpunk 2077 instruction 0826 + polished reasoning 0916.
+# Both sources completed raw action repair -> SFT -> 06 -> 07 with the
+# Cyberpunk 2077 system prompt. Instruction excludes mismatch trajectories
+# and continuation chunks of at most 20 frames; original short samples remain.
+# JSONL contains absolute image paths. Each source has 64 validation samples.
+format: jsonl
+val:
+  - /projects/b6db/opensima/sft_data/cyberpunk2077_instruction_0826_action_repaired_68h/_merged/val.jsonl
+  - /projects/b6db/opensima/sft_data/cyberpunk2077_spiderman2_reasoning_0916_action_repaired/cyberpunk2077_polish_reasoning_0916_action_repaired_49h/_merged/val.jsonl
+download: never
+
+loader:
+  streaming: true
+  dataset_shuffle: true
+  shuffle_buffer_size: 64
+  dataset_mix: interleave
+  interleave_unit: subdataset
+  interleave_weight: sample_count
+  stopping_strategy: all_exhausted_without_replacement
+  enable_channel_loss: true
+  channel_columns:
+    conversations: messages
+    game: channel
+    data_source: channel
+  add_genshin_special_tokens: true
+
+datasets:
+  cyberpunk2077_instruct:
+    # 18,231 train + 64 validation samples; filtered instruction 0826.
+    path: /projects/b6db/opensima/sft_data/cyberpunk2077_instruction_0826_action_repaired_68h/_merged/train.jsonl
+    passes: 5.0
+  cyberpunk2077_reasoning:
+    # 17,381 train + 64 validation samples; human_reasoning_polish.
+    path: /projects/b6db/opensima/sft_data/cyberpunk2077_spiderman2_reasoning_0916_action_repaired/cyberpunk2077_polish_reasoning_0916_action_repaired_49h/_merged/train.jsonl
+    passes: 5.0

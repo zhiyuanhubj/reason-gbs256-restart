@@ -1,0 +1,27 @@
+version: 1
+format: jsonl
+val: ${JSONL_VIEW_ROOT}/val.jsonl
+download: never
+
+loader:
+  streaming: true
+  dataset_shuffle: true
+  shuffle_buffer_size: 64
+  dataset_mix: interleave
+  interleave_unit: subdataset
+  interleave_weight: sample_count
+  stopping_strategy: all_exhausted_without_replacement
+  enable_channel_loss: true
+  channel_columns:
+    conversations: messages
+    game: channel
+    data_source: channel
+  add_genshin_special_tokens: true
+
+datasets:
+  gensin_instruct:
+    path: ${JSONL_VIEW_ROOT}/gensin-instruct-train.jsonl
+    passes: 5.0
+  genshin_reasoning:
+    path: ${JSONL_VIEW_ROOT}/gi-reasoning-train.jsonl
+    passes: 5.0

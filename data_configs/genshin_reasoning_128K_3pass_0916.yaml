@@ -1,0 +1,33 @@
+version: 1
+
+# Action-repaired release: raw repair -> reasoning SFT -> 06 -> 07.
+# Raw repair preserves every column, including human_reasoning_polish and QC.
+
+# Polished reasoning 0916 only, three passes, converted by scripts
+# 06_prepare_bc_dataset.py (--val_chunks 0) and 07_merge_shuffle_genshin.py
+# (--val_size 64 --seed 42 --check_images). JSONL contains absolute image paths.
+format: jsonl
+val:
+  - /projects/b6db/opensima/sft_data/genshin_instruct_reasoning_0916_action_repaired/reasoning/_merged/val.jsonl
+download: never
+
+loader:
+  streaming: true
+  dataset_shuffle: true
+  shuffle_buffer_size: 64
+  dataset_mix: interleave
+  interleave_unit: subdataset
+  interleave_weight: sample_count
+  stopping_strategy: all_exhausted_without_replacement
+  enable_channel_loss: true
+  channel_columns:
+    conversations: messages
+    game: channel
+    data_source: channel
+  add_genshin_special_tokens: true
+
+datasets:
+  genshin_reasoning:
+    # 24,657 train + 64 validation trajectories; human_reasoning_polish.
+    path: /projects/b6db/opensima/sft_data/genshin_instruct_reasoning_0916_action_repaired/reasoning/_merged/train.jsonl
+    passes: 3.0

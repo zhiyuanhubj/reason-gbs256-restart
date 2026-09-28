@@ -1,0 +1,125 @@
+# 多数据集混训配置：为【整个训练任务】指定每个数据集的总曝光倍率
+# ==============================================================================
+#
+# 一、核心概念
+# ------------------------------------------------------------------------------
+# passes 不是 Trainer 的 num_train_epochs，而是单个数据集在整个任务中要使用
+# 多少遍。脚本先为每个数据集计算最终采样条数：
+#
+#   最终采样条数_i = round(原始条数_i × passes_i)
+#
+# 然后生成 ms-swift 的：
+#
+#   --dataset path_a#最终条数_a path_b#最终条数_b ...
+#
+# 所有数据集会先合并并全局 shuffle，训练器再统一训练 1 个 epoch。
+#
+# 因此，使用 MIXTURE_YAML 时必须保持：
+#
+#   EPOCHS=1
+#
+# 如果再设置 EPOCHS=3，整个已经按 passes 展开的混合数据还会重复三次，造成
+# 意外的三倍训练。训练脚本会检查并拒绝这种配置。
+#
+#
+# 二、passes 的具体语义
+# ------------------------------------------------------------------------------
+#   passes: 0.2
+#     随机、无重复地选择该数据集 20% 的样本，每条最多出现一次。
+#
+#   passes: 0.6
+#     随机、无重复地选择该数据集 60% 的样本，每条最多出现一次。
+#
+#   passes: 1.0
+#     使用完整数据集一遍。
+#
+#   passes: 2.0
+#     使用完整数据集两遍；每条样本总共出现两次。
+#
+#   passes: 2.3
+#     使用完整数据集两遍，再随机选择其中 30%；部分样本出现三次，其余两次。
+#
+# 小数配额按四舍五入取整。例如原始 101 条、passes=0.6，最终采样 61 条。
+# 如果数据集很小且 passes 极低，最终条数可能取整为 0；脚本会警告并跳过它。
+#
+#
+# 三、最终采样概率
+# ------------------------------------------------------------------------------
+# YAML 不再单独填写 weight。数据集在最终混合数据中的概率由实际配额自然决定：
+#
+#                         原始条数_i × passes_i
+#   probability_i = ---------------------------------------
+#                    Σ(原始条数_j × passes_j)
+#
+# 示例：
+#   A 有 100,000 条，passes=1.0  -> 100,000 条
+#   B 有  50,000 条，passes=0.6  ->  30,000 条
+#   合并后 A 的概率约 76.92%，B 的概率约 23.08%。
+#
+# 注意：passes 表示“样本条数倍率”，不是 token 倍率。样本长度差异较大时，
+# 各数据集实际贡献的 token 比例还会受到平均每条 token 数影响。
+#
+#
+# 四、其他字段
+# ------------------------------------------------------------------------------
+# path:
+#   对应训练 JSONL 文件。正式训练机器上必须存在该路径。
+#
+# val:
+#   整个混训任务共用的验证集路径。它不参与 passes 分配。
+#
+# channel:
+#   建议每条 JSONL 数据包含 channel 字段，值与下面的数据集名一致，例如
+#   channel="genshin"。这样 --enable_channel_loss 才能分别记录各数据集 loss。
+#   混训启动脚本还会显示 trained_tokens_<channel>，表示截至当前真正参与
+#   SFT loss 的 assistant token 累计数；system/user/图片上下文 token 不计入。
+#
+# sample:
+#   特殊情况下可用 sample: 50000 直接指定绝对条数。sample 与 passes 只能
+#   二选一。sample 大于原始条数时同样会重复采样。
+#
+# multiplier:
+#   为兼容旧 YAML 暂时保留，含义与 passes 完全相同；新配置统一使用 passes。
+#
+# datasets / games:
+#   新配置使用 datasets。旧的 games 顶层名称暂时兼容，但两者不能同时出现。
+#
+#
+# 五、提交前检查
+# ------------------------------------------------------------------------------
+# 在项目根目录执行：
+#
+#   python scripts/lib_mixture.py \
+#     data_configs/mixture.example.yaml --summary
+#
+# 输出会列出每个数据集的：
+#   原始条数 / passes / 最终采样条数 / 最终概率 / 配置模式
+#
+# 正式提交时应复制本文件，不要直接修改 example，例如：
+#
+#   cp data_configs/mixture.example.yaml \
+#      data_configs/games_v1.yaml
+#
+#   sbatch --export=ALL,MIXTURE_YAML=/绝对路径/data_configs/games_v1.yaml \
+#      scripts/43_train_genshin_multinode.slurm
+#
+# ==============================================================================
+
+# 共用验证集；留空字符串表示不从本 YAML 覆盖训练脚本中的 VAL_FILE。
+val: /fsx/home/zhiyuan/yuanshen_processed/_merged/val.jsonl
+
+datasets:
+  # 完整使用原神数据一遍。
+  genshin:
+    path: /fsx/home/zhiyuan/yuanshen_processed/_merged/train.jsonl
+    passes: 1.0
+
+  # 随机无重复使用崩坏数据的 60%。
+  honkai:
+    path: /fsx/home/zhiyuan/honkai_processed/_merged/train.jsonl
+    passes: 0.6
+
+  # 完整使用绝区零数据两遍。
+  zzz:
+    path: /fsx/home/zhiyuan/zzz_processed/_merged/train.jsonl
+    passes: 2.0

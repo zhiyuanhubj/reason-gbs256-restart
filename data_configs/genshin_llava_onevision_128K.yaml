@@ -1,0 +1,309 @@
+version: 1
+
+# Genshin is a merged JSONL file. OneVision uses the named-subset Parquet
+# layout documented in docs/dataset_paths.md. The mixture parser counts each
+# source using its own format, while ms-swift accepts both path types together.
+format: mixed
+default_dataset_format: parquet
+root: ${LLAVA_DATA_ROOT}
+val: ${LLAVA_VAL_FILE}
+download: never
+hf_max_workers: 8
+
+loader:
+  streaming: true
+  dataset_shuffle: true
+  shuffle_buffer_size: 10000
+  dataset_mix: interleave
+  interleave_unit: dataset
+  interleave_weight: sample_count
+  stopping_strategy: all_exhausted
+  enable_channel_loss: true
+  # The launcher maps both Genshin's `game` and OneVision's `data_source` to
+  # ms-swift's canonical `channel` field.
+  channel_columns:
+    game: channel
+    data_source: channel
+  add_genshin_special_tokens: true
+
+# genshin 11,505,961,647
+# 11566317342
+
+# llava_onevision 20.142B
+
+
+# passes controls total sample exposure for the whole task. The trainer still
+# runs exactly one epoch over these expanded quotas.
+datasets:
+  genshin:
+    path: ${GENSHIN_TRAIN_FILE}
+    format: jsonl
+    passes: 3.0
+  "CLEVR":
+    passes: 0.19
+  "CLEVR-Math":
+    passes: 0.19
+  "Docmatix":
+    passes: 0.19
+  "Evol-Instruct-GPT4-Turbo":
+    passes: 0.19
+  "FigureQA":
+    passes: 0.19
+  "GEOS":
+    passes: 0.19
+  "GeoQA+":
+    passes: 0.19
+  "Geometry3K":
+    passes: 0.19
+  "IconQA":
+    passes: 0.19
+  "OmniDocBench_train":
+    passes: 0.19
+  "PMC-VQA":
+    passes: 0.19
+  "Super-CLEVR":
+    passes: 0.19
+  "VisualWebInstruct":
+    passes: 0.19
+  "VizWiz":
+    passes: 0.19
+  "ai2d":
+    passes: 0.19
+  "alfredplpl":
+    passes: 0.19
+  "alfworld":
+    passes: 0.19
+  "allava":
+    passes: 0.19
+  "allava_instruct_laion4v":
+    passes: 0.19
+  "allava_instruct_vflan4v":
+    passes: 0.19
+  "allenai_pixmo_docs":
+    passes: 0.19
+  "amc_aime":
+    passes: 0.19
+  "aokvqa":
+    passes: 0.19
+  "aops_forum":
+    passes: 0.19
+  "arxiv_figs":
+    passes: 0.19
+  "arxivqa":
+    passes: 0.19
+  "cambrian":
+    passes: 0.19
+  "chart2text":
+    passes: 0.19
+  "chartqa":
+    passes: 0.19
+  "chrome_writting":
+    passes: 0.19
+  "cn_k12":
+    passes: 0.19
+  "coco":
+    passes: 0.19
+  "code_feedback_66k":
+    passes: 0.19
+  "datikz":
+    passes: 0.19
+  "diagram":
+    passes: 0.19
+  "docvqa_train":
+    passes: 0.19
+  "dvqa":
+    passes: 0.19
+  "finqa":
+    passes: 0.19
+  "geo170k_align":
+    passes: 0.19
+  "geo170k_qa":
+    passes: 0.19
+  "geo3k":
+    passes: 0.19
+  "geomverse":
+    passes: 0.19
+  "gpt4o":
+    passes: 0.19
+  "gpt4v":
+    passes: 0.19
+  "gqa":
+    passes: 0.19
+  "gsm8k":
+    passes: 0.19
+  "hateful_memes":
+    passes: 0.19
+  "hitab":
+    passes: 0.19
+  "hme100k":
+    passes: 0.19
+  "iam":
+    passes: 0.19
+  "idk":
+    passes: 0.19
+  "ifeval_like":
+    passes: 0.19
+  "iiit":
+    passes: 0.19
+  "image_textualization":
+    passes: 0.19
+  "infographic_azuregpt4v":
+    passes: 0.19
+  "infographic_vqa":
+    passes: 0.19
+  "intergps":
+    passes: 0.19
+  "invoices-and-receipts_ocr":
+    passes: 0.19
+  "laion_220k":
+    passes: 0.19
+  "latex_ocr":
+    passes: 0.19
+  "llava_cot_100k":
+    passes: 0.19
+  "llava_instruct":
+    passes: 0.19
+  "llava_wild":
+    passes: 0.19
+  "llavar":
+    passes: 0.19
+  "llrv_gpt4v":
+    passes: 0.19
+  "lrv_chart":
+    passes: 0.19
+  "magpie_pro":
+    passes: 0.19
+  "magpie_ultra":
+    passes: 0.19
+  "mapqa":
+    passes: 0.19
+  "math":
+    passes: 0.19
+  "mathinstruct_262k":
+    passes: 0.19
+  "mathqa":
+    passes: 0.19
+  "mavis_math_metagen":
+    passes: 0.19
+  "ocr":
+    passes: 0.19
+  "ocrvqa":
+    passes: 0.19
+  "olympiads":
+    passes: 0.19
+  "oodvqa":
+    passes: 0.19
+  "open_orca":
+    passes: 0.19
+  "openmathinstruct":
+    passes: 0.19
+  "orca_994k":
+    passes: 0.19
+  "orca_agentinstruct":
+    passes: 0.19
+  "oroikon_chart_captioning":
+    passes: 0.19
+  "pathvqa":
+    passes: 0.19
+  "plotqa":
+    passes: 0.19
+  "raven":
+    passes: 0.19
+  "rects":
+    passes: 0.19
+  "rendered_text":
+    passes: 0.19
+  "robut_sqa":
+    passes: 0.19
+  "robut_wikisql":
+    passes: 0.19
+  "robut_wtq":
+    passes: 0.19
+  "rootsautomation":
+    passes: 0.19
+  "scienceqa":
+    passes: 0.19
+  "screen2words":
+    passes: 0.19
+  "screen_qa":
+    passes: 0.19
+  "sharegpt4o":
+    passes: 0.19
+  "sharegpt4v":
+    passes: 0.19
+  "sherlock":
+    passes: 0.19
+  "sroie_data":
+    passes: 0.19
+  "st_vqa":
+    passes: 0.19
+  "svit":
+    passes: 0.19
+  "synthetic_amc":
+    passes: 0.19
+  "synthetic_math":
+    passes: 0.19
+  "tabmwp":
+    passes: 0.19
+  "tallyqa":
+    passes: 0.19
+  "tat_qa":
+    passes: 0.19
+  "textcaps":
+    passes: 0.19
+  "textocr_gpt4v":
+    passes: 0.19
+  "textvqa":
+    passes: 0.19
+  "tinychart_train":
+    passes: 0.19
+  "tqa":
+    passes: 0.19
+  "unigeo":
+    passes: 0.19
+  "ureader_cap":
+    passes: 0.19
+  "ureader_chart":
+    passes: 0.19
+  "ureader_ie":
+    passes: 0.19
+  "ureader_kg":
+    passes: 0.19
+  "ureader_ocr":
+    passes: 0.19
+  "ureader_qa":
+    passes: 0.19
+  "ureader_tr":
+    passes: 0.19
+  "vflan":
+    passes: 0.19
+  "vg":
+    passes: 0.19
+  "viquae":
+    passes: 0.19
+  "vision_flan":
+    passes: 0.19
+  "vision_oritented":
+    passes: 0.19
+  "vistext":
+    passes: 0.19
+  "visual7w":
+    passes: 0.19
+  "visual_chat":
+    passes: 0.19
+  "visualmrc":
+    passes: 0.19
+  "vqaas":
+    passes: 0.19
+  "vqarad":
+    passes: 0.19
+  "vsr":
+    passes: 0.19
+  "websight":
+    passes: 0.19
+  "wikipedia_2m":
+    passes: 0.19
+  "wit":
+    passes: 0.19
+  "wizardlm":
+    passes: 0.19

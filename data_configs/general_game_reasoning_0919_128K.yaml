@@ -1,0 +1,33 @@
+version: 1
+
+# 0919 history15 reasoning (3 games, 3 passes). GBS=256; do not downscale batch.
+# HF cyber/spider repos are named *_0920_encrypted; that is this 0919 set, not a third dump.
+format: jsonl
+val: /opt/dlami/nvme/zhiyuan-reasoning-jsonl/val_mixed_0919.jsonl
+download: never
+
+loader:
+  streaming: true
+  dataset_shuffle: true
+  shuffle_buffer_size: 64
+  dataset_mix: interleave
+  interleave_unit: subdataset
+  interleave_weight: sample_count
+  stopping_strategy: all_exhausted_without_replacement
+  enable_channel_loss: true
+  channel_columns:
+    conversations: messages
+    game: channel
+    data_source: channel
+  add_genshin_special_tokens: true
+
+datasets:
+  genshin_reasoning:
+    path: /opt/dlami/nvme/zhiyuan-reasoning-jsonl/genshin_reasoning_history15_0919/_merged/train.jsonl
+    passes: 3.0
+  cyberpunk2077_reasoning:
+    path: /opt/dlami/nvme/zhiyuan-reasoning-jsonl/cyberpunk2077_reasoning_history15_0919/_merged/train.jsonl
+    passes: 3.0
+  spiderman2_reasoning:
+    path: /opt/dlami/nvme/zhiyuan-reasoning-jsonl/spiderman2_reasoning_history15_0919/_merged/train.jsonl
+    passes: 3.0

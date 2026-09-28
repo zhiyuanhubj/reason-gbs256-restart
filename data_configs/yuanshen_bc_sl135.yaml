@@ -1,0 +1,27 @@
+version: 1
+
+# This is the ready-to-train output of scripts/06_prepare_bc_dataset.py plus
+# scripts/07_merge_shuffle_genshin.py. The raw binary-image parquet directory
+# yuanshen_bc_formatted_sl135 is intentionally not read by the trainer.
+format: jsonl
+root: genshin_bc_sl135
+val: _merged/val.jsonl
+download: never
+hf_max_workers: 8
+
+loader:
+  streaming: true
+  dataset_shuffle: true
+  shuffle_buffer_size: 10000
+  dataset_mix: concatenate
+  enable_channel_loss: true
+  channel_column: game
+  add_genshin_special_tokens: true
+  # The launcher writes a shared manifest and disables downstream shuffles so
+  # every pass keeps its strict phase boundary by default.
+  pass_aware_mixture: true
+
+datasets:
+  yuanshen_bc_sl135:
+    path: _merged/train.jsonl
+    passes: 1.0

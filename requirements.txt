@@ -1,0 +1,65 @@
+# 注意：这只是【参考】依赖列表。
+# 实际安装请用 scripts/00_install_env.sh，因为以下包不能简单 pip install:
+#   - torch          : 必须从 PyTorch 官方 cu128 wheel 装
+#   - flash-attn     : 必须装 cxx11abi=TRUE 的 prebuilt wheel
+#   - transformers   : 固定版本（含 Qwen3.5 支持）
+#   - ms-swift       : 固定 commit + patches/ 中的恢复补丁
+#   - transformer_engine : 编译时需要 NCCL 头路径
+#   - apex           : 源码编译 30+ min（mcore≥0.16 可选）
+#
+# 当前64 GPU save-stop-resume实测版本（2026-08-12）:
+#   python                    3.10.20
+#   torch                     2.8.0+cu128 (cxx11abi=True)
+#   flash-attn                2.8.3
+#   transformers              5.14.1
+#   ms-swift                  4.5.0.dev0 (dc40c652 + repository patch)
+#   accelerate                1.14.0
+#   peft                      0.20.0
+#   trl                       1.9.2
+#   datasets                  5.0.1
+#   pyarrow                   25.0.0
+#   deepspeed                 0.18.9
+#   flash-linear-attention    0.5.2
+#   tilelang                  0.1.13 (Hopper GPU 必须)
+#   megatron-core             0.16.1
+#   mcore-bridge              1.6.1
+#   transformer-engine        2.14.1
+#   apex                      未装（mcore≥0.16 可选）
+
+# ===== 核心训练框架 =====
+transformers==5.14.1
+accelerate==1.14.0
+peft==0.20.0
+trl==1.9.2
+datasets==5.0.1
+pyarrow==25.0.0
+pycryptodomex==3.23.0
+deepspeed>=0.15.0
+
+# ===== Qwen3.5 GatedDeltaNet 内核 =====
+flash-linear-attention==0.5.2
+tilelang==0.1.13               # Hopper GPU (H100/H200) 上 fla 需要
+
+# ===== Megatron 后端 =====
+megatron-core==0.16.1
+mcore-bridge==1.6.1
+# transformer-engine[pytorch,core_cu12]==2.14.1   # 单独装
+
+# ===== Qwen3.5 多模态 =====
+decord
+qwen_vl_utils
+
+# ===== 工具链 =====
+huggingface_hub
+modelscope
+einops
+sentencepiece
+tiktoken
+tensorboard
+wandb
+swanlab                        # 备选实验追踪
+
+# ===== 开发 =====
+ipython
+rich
+tqdm

@@ -1,0 +1,10 @@
+version: 1
+format: parquet
+root: ${LOCAL_DATA_ROOT}/mixture-compact/parquet
+val: ${LOCAL_DATA_ROOT}/mixture-compact/validation/genshin-val.parquet
+download: never
+
+datasets:
+  genshin:
+    path: genshin-speed
+    passes: 1.0
