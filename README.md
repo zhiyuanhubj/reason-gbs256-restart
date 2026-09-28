@@ -1,6 +1,6 @@
 # megatron-sft-qwen35
 
-0916 / 0919 三游戏 reasoning、GBS=256、4×8 H200 的续训合同（起点权重、val 切分、checkpoint、启动命令）见 [`RESTART_REASON_GBS256.md`](RESTART_REASON_GBS256.md)。
+不要从 4183 重头训。权重和数据的 Hugging Face 下载地址、val 切分、续训命令见 [`RESTART_REASON_GBS256.md`](RESTART_REASON_GBS256.md)。
 
 游戏行为克隆（Behavior Cloning）VLM **SFT 训练流水线**，基于 [ms-swift](https://github.com/modelscope/ms-swift) 的 **Megatron 后端** + Qwen3.5-VL 系列模型。
 

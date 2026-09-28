@@ -1,6 +1,57 @@
 # 重启 0916 / 0919 reasoning（GBS=256）
 
-这份说明给另一台机器上的 coding agent。目标是把两次 **GBS=256** 的三游戏 mixed-reasoning SFT 重新拉起来。权重不在 git 里。
+不要从 `checkpoint-4183` 重头训。权重和 jsonl 都不在这个 git 仓库里。能直接下载的是下面这些 Hugging Face 地址。
+
+## 先下载权重
+
+这两份都是 Hugging Face 格式（safetensors），不是 Megatron DCP。下载后设 `MODEL_PATH`，`FINETUNE=true`，`RESUME_FROM` 留空。优化器状态和 step 计数会重新开始，但权重不是 4183。
+
+**0919，用 step 60。这是网上能下到的最远一份。**
+
+https://huggingface.co/zhiyuanhucs/Qwen3.5-9B-General-Game-reason0919/tree/checkpoint-60
+
+```bash
+huggingface-cli download zhiyuanhucs/Qwen3.5-9B-General-Game-reason0919 \
+  --revision checkpoint-60 \
+  --local-dir /path/to/reason0919-checkpoint-60
+```
+
+同仓库还有更早的 `checkpoint-40`。`main` 不要拿来续这次训练。step 80 的 Megatron checkpoint 只在 AWS FSx，没有上传：
+
+`/fsx/home/zhiyuan/nfs/outputs/reason0919_gbs256_20260925T083029Z/checkpoint-80`
+
+那一份才能 `FINETUNE=false`、`RESUME_FROM` 接着 optimizer 训。另一台机器访问不到 FSx，就用上面的 `checkpoint-60`。step 100/120/140 的分片不完整，下不下来。
+
+**0916，用 step 920。这次从 4183 新开、训到 step 125 的 checkpoint 没有上传，下不下来。**
+
+https://huggingface.co/zhiyuanhucs/Qwen3.5-9B-General-Game-reason0916/tree/checkpoint-920
+
+```bash
+huggingface-cli download zhiyuanhucs/Qwen3.5-9B-General-Game-reason0916 \
+  --revision checkpoint-920 \
+  --local-dir /path/to/reason0916-checkpoint-920
+```
+
+同仓库还有 `checkpoint-880`、`checkpoint-600`，都比 920 更早。
+
+## 数据不用重新下载，val 也不要重切
+
+`/projects/b6db` 上切好的 jsonl 已经在配置里，每个游戏 64 条 val。文件在就直接训练：
+
+- 0916：`data_configs/general_game_reasoning_128K_0921.yaml`
+- 0919 history15：`data_configs/general_game_reasoning_history15_128K_0924.yaml`
+
+这些 jsonl 不在 Hugging Face 上。只有原始 parquet 在 Hugging Face，而且是加密包，下下来还要再跑 `06`（`--val_chunks 0`）和 `07`（`--val_size 64 --seed 42`）。jsonl 已经在磁盘上时不要走这条。
+
+| 游戏 | 0916 polish parquet | 0919 history15 parquet |
+|---|---|---|
+| Genshin | https://huggingface.co/datasets/opensima12/genshin_polish_reasoning_0916_encrypted | https://huggingface.co/datasets/opensima12/genshin_reasoning_history15_sl120_0919_encrypted |
+| Cyberpunk 2077 | https://huggingface.co/datasets/opensima12/cyberpunk2077_polish_reasoning_0916_encrypted | https://huggingface.co/datasets/opensima12/cyberpunk2077_reasoning_history15_sl120_0920_encrypted |
+| Spider-Man 2 | https://huggingface.co/datasets/opensima12/spiderman2_polish_reasoning_0916_encrypted | https://huggingface.co/datasets/opensima12/spiderman2_reasoning_history15_sl120_0920_encrypted |
+
+Cyberpunk / Spider-Man 的 0919 仓库名带 `0920`，就是这套 0919 数据。
+
+这份说明给另一台机器上的 coding agent。目标是把两次 **GBS=256** 的三游戏 mixed-reasoning SFT 接着训，而不是从 4183 重开。
 
 在 `/projects/b6db` 这台机器上，数据和 val 切分已经在仓库里，不要重切：
 
@@ -18,9 +69,9 @@
 
 这两个脚本现在都认环境变量 `RESUME_FROM`。不设的时候是新开（`FINETUNE` 默认为 true）。设了路径时 `41_train_bc_full_megatron.sh` 要求 `FINETUNE=false`。脚本里的 `TRAIN_ITERS` 默认是 300（55）和 400（57），那是步数上限，不是全集。要跑完一个 epoch，启动前设 `TRAIN_ITERS=887` 或 `907`，或者设 `TRAIN_ITERS=0` 让脚本按样本数重算。`SAVE_TOTAL_LIMIT` 建议设为 2。
 
-0916 这次在 AWS 上从 4183 训到 step 125 的 checkpoint 已经丢了。在这边从 `MODEL_PATH` 的 `general_game_4183`（HF `ltzheng/Qwen3.5-9B-General-Game` 的 `checkpoint-4183`）重新 finetune。不要用 Hugging Face `zhiyuanhucs/Qwen3.5-9B-General-Game-reason0916` 的 `checkpoint-600/880/920`，那是更早一次。
+0916 这次在 AWS 上从 4183 训到 step 125 的 checkpoint 没有上传。要接着训就下载上一节的 `checkpoint-920`，设成 `MODEL_PATH`，`FINETUNE=true`。不要改回 `checkpoint-4183`。
 
-0919 能续的完整权重只有 AWS FSx 上的 checkpoint-80，约 120G，不在 git 里，需要单独拷过来再设 `RESUME_FROM`。Hugging Face `zhiyuanhucs/Qwen3.5-9B-General-Game-reason0919` 的 `checkpoint-40` 和 `checkpoint-60` 更早。step 100/120/140 的分片不完整，不能当 resume。
+0919 网上最远是上一节的 `checkpoint-60`，同样 `FINETUNE=true`。只有把 AWS 上的 Megatron `checkpoint-80` 拷过来时，才设 `FINETUNE=false` 和 `RESUME_FROM`。step 100/120/140 的分片不完整，不能当 resume。
 
 下面是 AWS 原集群上的路径和当时的 4×8 H200 合同，用来对照，不是这边的启动路径。
 
