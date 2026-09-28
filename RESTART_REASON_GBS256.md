@@ -45,7 +45,7 @@ huggingface-cli download zhiyuanhucs/Qwen3.5-9B-General-Game-reason0916 \
 
 https://huggingface.co/datasets/zhiyuanhucs/general-game-reasoning-0919-history15
 
-约 0.9T，2026-09-28 开始从 AWS 节点上传。仓库里还没有文件时不要下载。
+约 948GB，2026-09-28 14:27 UTC 已传完，可以直接下载。
 
 ```bash
 huggingface-cli download zhiyuanhucs/general-game-reasoning-0919-history15 \
