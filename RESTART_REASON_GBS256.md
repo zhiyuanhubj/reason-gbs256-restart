@@ -41,7 +41,21 @@ huggingface-cli download zhiyuanhucs/Qwen3.5-9B-General-Game-reason0916 \
 - 0916：`data_configs/general_game_reasoning_128K_0921.yaml`
 - 0919 history15：`data_configs/general_game_reasoning_history15_128K_0924.yaml`
 
-这些 jsonl 不在 Hugging Face 上。只有原始 parquet 在 Hugging Face，而且是加密包，下下来还要再跑 `06`（`--val_chunks 0`）和 `07`（`--val_size 64 --seed 42`）。jsonl 已经在磁盘上时不要走这条。
+0919 已经转好的训练集（jsonl + 图片，不含 LLaVA）传到：
+
+https://huggingface.co/datasets/zhiyuanhucs/general-game-reasoning-0919-history15
+
+约 0.9T，2026-09-28 开始从 AWS 节点上传。仓库里还没有文件时不要下载。
+
+```bash
+huggingface-cli download zhiyuanhucs/general-game-reasoning-0919-history15 \
+  --repo-type dataset \
+  --local-dir /path/to/reason0919-history15
+```
+
+jsonl 里的图片路径相对这个目录。三个游戏目录名是 `genshin_reasoning_history15_0919`、`cyberpunk2077_reasoning_history15_0919`、`spiderman2_reasoning_history15_0919`，另外有 `val_mixed_0919.jsonl`（192 行）。下完后把 YAML 指到这里，不要再跑 `06` / `07`。
+
+原始 parquet 仍是加密包。只有 jsonl 不在上面这个仓库里、必须重做时才用它们，并且要再跑 `06`（`--val_chunks 0`）和 `07`（`--val_size 64 --seed 42`）。jsonl 已经在磁盘上时不要走这条。
 
 | 游戏 | 0916 polish parquet | 0919 history15 parquet |
 |---|---|---|
