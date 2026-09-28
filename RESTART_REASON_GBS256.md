@@ -45,7 +45,7 @@ huggingface-cli download zhiyuanhucs/Qwen3.5-9B-General-Game-reason0916 \
 
 https://huggingface.co/datasets/zhiyuanhucs/general-game-reasoning-0916-polish
 
-2026-09-28 开始从空闲节点上传。仓库里还没有文件时不要下载。图片同样是按 chunk 打的 `chunk_*.tar`，解包方式和下面 0919 一样。目录名是 `genshin_polish_reasoning_0916`、`cyberpunk2077_polish_reasoning_0916`、`spiderman2_polish_reasoning_0916`，另外有 `val_mixed.jsonl`（192 行）。
+709GB，2026-09-28 14:41 UTC 已传完，可以直接下载。图片同样是按 chunk 打的 `chunk_*.tar`，解包方式和下面 0919 一样。目录名是 `genshin_polish_reasoning_0916`、`cyberpunk2077_polish_reasoning_0916`、`spiderman2_polish_reasoning_0916`，另外有 `val_mixed.jsonl`（192 行）。
 
 0919 已经转好的训练集（jsonl + 图片，不含 LLaVA）传到：
 
