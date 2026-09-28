@@ -4,25 +4,22 @@
 
 ## 先下载权重
 
-这两份都是 Hugging Face 格式（safetensors），不是 Megatron DCP。下载后设 `MODEL_PATH`，`FINETUNE=true`，`RESUME_FROM` 留空。优化器状态和 step 计数会重新开始，但权重不是 4183。
+**0919 要从 step 80 完整续上，下这份 Megatron checkpoint。** 64 个 `*.distcp`，带优化器和 dataloader，tracker 是 `80`。设 `FINETUNE=false`，`RESUME_FROM` 指到下载目录。不要把它当成 safetensors 用 `MODEL_PATH` 加载。
 
-**0919，用 step 60。这是网上能下到的最远一份。**
+https://huggingface.co/zhiyuanhucs/Qwen3.5-9B-General-Game-reason0919-mcore80
+
+```bash
+huggingface-cli download zhiyuanhucs/Qwen3.5-9B-General-Game-reason0919-mcore80 \
+  --local-dir /path/to/reason0919-checkpoint-80
+```
+
+`zhiyuanhucs/Qwen3.5-9B-General-Game-reason0919` 的 `checkpoint-60` / `checkpoint-40` 是 safetensors。那只能 `MODEL_PATH` + `FINETUNE=true`，优化器和 step 会清零。要完整恢复就用上面的 mcore80。
+
+step 100/120/140 的分片不完整，下不下来。safetensors 备选是 `checkpoint-60`：
 
 https://huggingface.co/zhiyuanhucs/Qwen3.5-9B-General-Game-reason0919/tree/checkpoint-60
 
-```bash
-huggingface-cli download zhiyuanhucs/Qwen3.5-9B-General-Game-reason0919 \
-  --revision checkpoint-60 \
-  --local-dir /path/to/reason0919-checkpoint-60
-```
-
-同仓库还有更早的 `checkpoint-40`。`main` 不要拿来续这次训练。step 80 的 Megatron checkpoint 只在 AWS FSx，没有上传：
-
-`/fsx/home/zhiyuan/nfs/outputs/reason0919_gbs256_20260925T083029Z/checkpoint-80`
-
-那一份才能 `FINETUNE=false`、`RESUME_FROM` 接着 optimizer 训。另一台机器访问不到 FSx，就用上面的 `checkpoint-60`。step 100/120/140 的分片不完整，下不下来。
-
-**0916，用 step 920。这次从 4183 新开、训到 step 125 的 checkpoint 没有上传，下不下来。**
+**0916 没有可完整恢复的 Megatron checkpoint。** 这次从 4183 新开、训到 step 125 的分片没有上传。能下的是更早一轮的 safetensors，`MODEL_PATH` + `FINETUNE=true`，优化器会清零。用 step 920：
 
 https://huggingface.co/zhiyuanhucs/Qwen3.5-9B-General-Game-reason0916/tree/checkpoint-920
 
@@ -97,7 +94,7 @@ Cyberpunk / Spider-Man 的 0919 仓库名带 `0920`，就是这套 0919 数据�
 
 0916 这次在 AWS 上从 4183 训到 step 125 的 checkpoint 没有上传。要接着训就下载上一节的 `checkpoint-920`，设成 `MODEL_PATH`，`FINETUNE=true`。不要改回 `checkpoint-4183`。
 
-0919 网上最远是上一节的 `checkpoint-60`，同样 `FINETUNE=true`。只有把 AWS 上的 Megatron `checkpoint-80` 拷过来时，才设 `FINETUNE=false` 和 `RESUME_FROM`。step 100/120/140 的分片不完整，不能当 resume。
+0919 完整续训下载上一节的 `Qwen3.5-9B-General-Game-reason0919-mcore80`，设 `FINETUNE=false` 和 `RESUME_FROM`。`checkpoint-60` 只是 safetensors。step 100/120/140 的分片不完整，不能当 resume。
 
 下面是 AWS 原集群上的路径和当时的 4×8 H200 合同，用来对照，不是这边的启动路径。
 
@@ -214,7 +211,7 @@ Hugging Face `zhiyuanhucs/Qwen3.5-9B-General-Game-reason0916` 上的 `checkpoint
 
 约 92G，含 100/120/140，只有 `__24`–`__31`。没有另外三台的分片就不能从 140 续。
 
-Hugging Face `zhiyuanhucs/Qwen3.5-9B-General-Game-reason0919` 上有 `checkpoint-40`、`checkpoint-60`、`main`，都比 80 更早。80 没有上传。
+完整的 checkpoint-80 在 https://huggingface.co/zhiyuanhucs/Qwen3.5-9B-General-Game-reason0919-mcore80 。同账号 safetensors 仓库里的 `checkpoint-40`、`checkpoint-60`、`main` 不能用来恢复优化器。
 
 从 80 续：
 
