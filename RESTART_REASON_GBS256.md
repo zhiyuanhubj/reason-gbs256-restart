@@ -53,7 +53,13 @@ huggingface-cli download zhiyuanhucs/general-game-reasoning-0919-history15 \
   --local-dir /path/to/reason0919-history15
 ```
 
-jsonl 里的图片路径相对这个目录。三个游戏目录名是 `genshin_reasoning_history15_0919`、`cyberpunk2077_reasoning_history15_0919`、`spiderman2_reasoning_history15_0919`，另外有 `val_mixed_0919.jsonl`（192 行）。下完后把 YAML 指到这里，不要再跑 `06` / `07`。
+图片按 chunk 打成未压缩的 `chunk_*.tar` 再传，避免几百万张小 jpg 把上传拖死。jsonl 路径仍相对这个目录。三个游戏目录名是 `genshin_reasoning_history15_0919`、`cyberpunk2077_reasoning_history15_0919`、`spiderman2_reasoning_history15_0919`，另外有 `val_mixed_0919.jsonl`（192 行）。下完后先解包，再把 YAML 指过来，不要再跑 `06` / `07`。
+
+```bash
+cd /path/to/reason0919-history15
+find . -name 'chunk_*.tar' -print0 | xargs -0 -P 16 -I{} tar -xf {} -C "$(dirname {})"
+find . -name 'chunk_*.tar' -delete
+```
 
 原始 parquet 仍是加密包。只有 jsonl 不在上面这个仓库里、必须重做时才用它们，并且要再跑 `06`（`--val_chunks 0`）和 `07`（`--val_size 64 --seed 42`）。jsonl 已经在磁盘上时不要走这条。
 
